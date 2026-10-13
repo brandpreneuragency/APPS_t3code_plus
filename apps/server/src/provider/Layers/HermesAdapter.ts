@@ -549,8 +549,9 @@ export function makeHermesAdapter(
             runtime: acp,
             currentModelId: currentHermesModelIdFromSessionSetup(started.sessionSetupResult),
             requestedModelId: requestedStartModelId,
-            mapError: (cause) =>
-              mapAcpToAdapterError(PROVIDER, input.threadId, "session/set_model", cause),
+            selections: hermesModelSelection?.options,
+            mapError: (cause, method) =>
+              mapAcpToAdapterError(PROVIDER, input.threadId, method, cause),
           });
 
           const now = yield* nowIso;
@@ -708,8 +709,9 @@ export function makeHermesAdapter(
             runtime: ctx.acp,
             currentModelId: ctx.currentModelId,
             requestedModelId: requestedTurnModelId,
-            mapError: (cause) =>
-              mapAcpToAdapterError(PROVIDER, input.threadId, "session/set_model", cause),
+            selections: turnModelSelection?.options,
+            mapError: (cause, method) =>
+              mapAcpToAdapterError(PROVIDER, input.threadId, method, cause),
           });
           ctx.currentModelId = currentModelId;
           ctx.activeTurnId = turnId;

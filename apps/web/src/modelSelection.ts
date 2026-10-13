@@ -3,6 +3,7 @@ import {
   DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   defaultInstanceIdForDriver,
   type ModelSelection,
+  type ProviderInstanceConfig,
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
@@ -138,6 +139,56 @@ function applyInstanceModelPreferences(
     options.filter((option) => option.isCustom || !hiddenModels.has(option.slug)),
     { modelOrder: preferences.modelOrder },
   );
+}
+
+export function appendCustomModelToInstance(input: {
+  readonly settings: UnifiedSettings;
+  readonly instanceId: ProviderInstanceId;
+  readonly driverKind: ProviderDriverKind;
+  readonly slug: string;
+}):
+  | { readonly ok: true; readonly slug: string; readonly patch: Partial<UnifiedSettings> }
+  | { readonly ok: false; readonly error: string } {
+  const normalized = normalizeCustomModelSlug(input.slug);
+  if (!normalized) {
+    return { ok: false, error: "Enter a model slug." };
+  }
+  if (normalized.length > MAX_CUSTOM_MODEL_LENGTH) {
+    return {
+      ok: false,
+      error: `Model slugs must be ${MAX_CUSTOM_MODEL_LENGTH} characters or less.`,
+    };
+  }
+  const current = readInstanceCustomModels(input.settings, input.instanceId, input.driverKind);
+  if (current.includes(normalized)) {
+    return { ok: false, error: "That custom model is already saved." };
+  }
+  const existing = input.settings.providerInstances?.[input.instanceId];
+  const nextConfig = {
+    ...(existing?.config !== null && typeof existing?.config === "object"
+      ? (existing.config as Record<string, unknown>)
+      : {}),
+    customModels: [...current, normalized],
+  };
+  const instance = {
+    driver: existing?.driver ?? input.driverKind,
+    ...(existing?.displayName ? { displayName: existing.displayName } : {}),
+    ...(existing?.accentColor ? { accentColor: existing.accentColor } : {}),
+    ...(existing?.environment ? { environment: existing.environment } : {}),
+    ...(existing?.enabled !== undefined ? { enabled: existing.enabled } : {}),
+    config: nextConfig,
+  } satisfies ProviderInstanceConfig;
+
+  return {
+    ok: true,
+    slug: normalized,
+    patch: {
+      providerInstances: {
+        ...input.settings.providerInstances,
+        [input.instanceId]: instance,
+      },
+    },
+  };
 }
 
 export function normalizeCustomModelSlugs(

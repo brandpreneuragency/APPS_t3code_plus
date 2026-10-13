@@ -87,10 +87,11 @@ export const makeHermesTextGeneration = Effect.fn("makeHermesTextGeneration")(fu
           runtime,
           currentModelId: currentHermesModelIdFromSessionSetup(started.sessionSetupResult),
           requestedModelId: resolvedModel,
+          selections: modelSelection.options,
           mapError: (cause) =>
             new TextGenerationError({
               operation,
-              detail: "Failed to set Hermes ACP model for text generation.",
+              detail: "Failed to set Hermes ACP model or reasoning effort for text generation.",
               cause,
             }),
         });

@@ -245,12 +245,18 @@ export const checkCommandCodeProviderStatus = Effect.fn("checkCommandCodeProvide
       Result.isSuccess(modelsResult) && Option.isSome(modelsResult.success)
         ? parseCommandCodeListModels(
             `${modelsResult.success.value.stdout}\n${modelsResult.success.value.stderr}`,
-          ).map((model) => ({
-            slug: model.slug,
-            name: model.name,
-            isCustom: false,
-            capabilities: EMPTY_CAPABILITIES,
-          }))
+          ).map((model) => {
+            const vendor = model.slug.includes("/")
+              ? model.slug.slice(0, model.slug.indexOf("/"))
+              : undefined;
+            return {
+              slug: model.slug,
+              name: model.name,
+              isCustom: false,
+              capabilities: EMPTY_CAPABILITIES,
+              ...(vendor ? { subProvider: vendor } : {}),
+            };
+          })
         : [];
 
     const models =

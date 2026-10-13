@@ -349,6 +349,10 @@ export function useUpdatePrimarySettings() {
   return useUpdateSettingsTarget(usePrimaryEnvironment()?.environmentId ?? null);
 }
 
+export function useUpdateSettings(environmentId: EnvironmentId | null) {
+  return useUpdateSettingsTarget(environmentId);
+}
+
 export function useUpdateClientSettings() {
   return useCallback((patch: ClientSettingsPatch) => {
     persistClientSettings({

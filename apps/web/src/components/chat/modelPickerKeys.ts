@@ -45,3 +45,38 @@ export function parseModelPickerLegacySectionKey(key: string): ProviderInstanceI
     ? (key.slice(LEGACY_SECTION_KEY_PREFIX.length) as ProviderInstanceId)
     : null;
 }
+
+const GROUP_SECTION_KEY_PREFIX = "model-group:";
+
+export function modelPickerGroupSectionKey(
+  instanceId: ProviderInstanceId,
+  groupId: string,
+): string {
+  return `${GROUP_SECTION_KEY_PREFIX}${instanceId.length}:${instanceId}${groupId}`;
+}
+
+export function parseModelPickerGroupSectionKey(
+  key: string,
+): { instanceId: ProviderInstanceId; groupId: string } | null {
+  if (!key.startsWith(GROUP_SECTION_KEY_PREFIX)) {
+    return null;
+  }
+  const encoded = key.slice(GROUP_SECTION_KEY_PREFIX.length);
+  const separatorIndex = encoded.indexOf(":");
+  if (separatorIndex === -1) {
+    return null;
+  }
+  const instanceIdLengthText = encoded.slice(0, separatorIndex);
+  if (!/^\d+$/.test(instanceIdLengthText)) {
+    return null;
+  }
+  const instanceIdLength = Number(instanceIdLengthText);
+  const value = encoded.slice(separatorIndex + 1);
+  if (!Number.isSafeInteger(instanceIdLength) || instanceIdLength > value.length) {
+    return null;
+  }
+  return {
+    instanceId: value.slice(0, instanceIdLength) as ProviderInstanceId,
+    groupId: value.slice(instanceIdLength),
+  };
+}

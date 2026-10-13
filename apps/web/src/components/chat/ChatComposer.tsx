@@ -4142,6 +4142,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       }}
                       getModelDisabledReason={getModelDisabledReason}
                       onInstanceModelChange={onProviderModelSelect}
+                      environmentId={environmentId}
+                      settings={settings}
                     />
                   )}
 

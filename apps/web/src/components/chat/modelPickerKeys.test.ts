@@ -1,8 +1,10 @@
 import { ProviderInstanceId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import {
+  modelPickerGroupSectionKey,
   modelPickerLegacySectionKey,
   modelPickerModelKey,
+  parseModelPickerGroupSectionKey,
   parseModelPickerLegacySectionKey,
   parseModelPickerModelKey,
 } from "./modelPickerKeys";
@@ -27,5 +29,17 @@ describe("model picker item keys", () => {
     const key = modelPickerModelKey(instanceId, slug);
 
     expect(parseModelPickerModelKey(key)).toEqual({ instanceId, slug });
+  });
+
+  it("round-trips group section keys", () => {
+    const instanceId = ProviderInstanceId.make("commandCode");
+    const key = modelPickerGroupSectionKey(instanceId, "vendor:google");
+
+    expect(parseModelPickerGroupSectionKey(key)).toEqual({
+      instanceId,
+      groupId: "vendor:google",
+    });
+    expect(parseModelPickerModelKey(key)).toBeNull();
+    expect(parseModelPickerLegacySectionKey(key)).toBeNull();
   });
 });

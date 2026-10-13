@@ -1,20 +1,27 @@
 import {
+  type EnvironmentId,
   type ProviderInstanceId,
   type ProviderDriverKind,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
+import type { UnifiedSettings } from "@t3tools/contracts/settings";
 import { resolveSelectableModel } from "@t3tools/shared/model";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { memo, useMemo, useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { ChevronRightIcon, SearchIcon } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { ModelListRow } from "./ModelListRow";
+import { ModelPickerGroupHeader } from "./ModelPickerGroupHeader";
 import { ModelPickerSidebar } from "./ModelPickerSidebar";
 import {
+  modelPickerGroupSectionKey,
   modelPickerLegacySectionKey,
   modelPickerModelKey,
+  parseModelPickerGroupSectionKey,
   parseModelPickerLegacySectionKey,
   parseModelPickerModelKey,
 } from "./modelPickerKeys";
+import { buildModelPickerGroupSections, resolveModelSlugForGroup } from "./modelPickerGroups";
 import { isModelPickerNewModel } from "./modelPickerModelHighlights";
 import { buildModelPickerSearchText, scoreModelPickerSearch } from "./modelPickerSearch";
 import {
@@ -31,7 +38,13 @@ import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
 } from "../../keybindings";
-import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
+import {
+  useClientSettings,
+  usePrimarySettings,
+  useUpdateClientSettings,
+  useUpdateSettings,
+} from "~/hooks/useSettings";
+import { usePrimaryEnvironment } from "~/state/environments";
 import { cn } from "~/lib/utils";
 import { getVirtualizedScrollFadeClassName } from "../ui/scroll-area";
 import { TooltipProvider } from "../ui/tooltip";
@@ -40,6 +53,7 @@ import {
   isProviderInstancePickerVisible,
   type ProviderInstanceEntry,
 } from "../../providerInstances";
+import { appendCustomModelToInstance } from "../../modelSelection";
 import { providerModelKey, sortProviderModelItems } from "../../modelOrdering";
 
 type ModelPickerItem = {
@@ -109,6 +123,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   onRequestClose?: () => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
+  environmentId?: EnvironmentId | null;
+  settings?: UnifiedSettings;
 }) {
   const {
     keybindings: providedKeybindings,
@@ -117,6 +133,12 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     getModelDisabledReason,
     onInstanceModelChange,
   } = props;
+  const navigate = useNavigate();
+  const primaryEnvironmentId = usePrimaryEnvironment()?.environmentId ?? null;
+  const environmentId = props.environmentId ?? primaryEnvironmentId;
+  const liveSettings = usePrimarySettings();
+  const settings = props.settings ?? liveSettings;
+  const updateServerSettings = useUpdateSettings(environmentId);
   const [searchQuery, setSearchQuery] = useState("");
   const [showTopScrollFade, setShowTopScrollFade] = useState(false);
   const [showBottomScrollFade, setShowBottomScrollFade] = useState(false);
@@ -158,6 +180,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           : [],
       ),
   );
+  const [collapsedGroupKeys, setCollapsedGroupKeys] = useState(() => new Set<string>());
   const keybindings = useMemo<ResolvedKeybindingsConfig>(
     () => providedKeybindings ?? [],
     [providedKeybindings],
@@ -440,6 +463,21 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     ];
   }, [filteredModels, legacySection]);
 
+  const groupSections = useMemo(
+    () => buildModelPickerGroupSections(visibleModels),
+    [visibleModels],
+  );
+  const groupSectionByKey = useMemo(
+    () =>
+      new Map(
+        groupSections.map((section) => [
+          modelPickerGroupSectionKey(section.instanceId, section.id),
+          section,
+        ]),
+      ),
+    [groupSections],
+  );
+
   const toggleLegacySection = useCallback((instanceId: ProviderInstanceId) => {
     setExpandedLegacyInstances((expanded) => {
       const next = new Set(expanded);
@@ -451,6 +489,46 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       return next;
     });
   }, []);
+
+  const toggleGroupSection = useCallback((key: string) => {
+    setCollapsedGroupKeys((collapsed) => {
+      const next = new Set(collapsed);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleOpenProviderSettings = useCallback(() => {
+    props.onRequestClose?.();
+    void navigate({ to: "/settings/providers" });
+  }, [navigate, props.onRequestClose]);
+
+  const handleAddGroupSlug = useCallback(
+    (
+      instanceId: ProviderInstanceId,
+      driverKind: ProviderDriverKind,
+      slugPrefix: string | null,
+      raw: string,
+    ) => {
+      const resolved = resolveModelSlugForGroup(raw, slugPrefix);
+      const result = appendCustomModelToInstance({
+        settings,
+        instanceId,
+        driverKind,
+        slug: resolved,
+      });
+      if (!result.ok) {
+        return result.error;
+      }
+      updateServerSettings(result.patch);
+      return null;
+    },
+    [settings, updateServerSettings],
+  );
 
   const handleModelSelect = useCallback(
     (modelSlug: string, instanceId: ProviderInstanceId) => {
@@ -513,27 +591,49 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     () => [...modelJumpCommandByKey.keys()],
     [modelJumpCommandByKey],
   );
-  const allItemKeys = useMemo(
-    (): string[] => [
+  const allItemKeys = useMemo((): string[] => {
+    const groupKeys = buildModelPickerGroupSections(flatModels).map((section) =>
+      modelPickerGroupSectionKey(section.instanceId, section.id),
+    );
+    return [
       ...flatModels.map((model) => modelPickerModelKey(model.instanceId, model.slug)),
       ...new Set(
         flatModels
           .filter((model) => model.isLegacy)
           .map((model) => modelPickerLegacySectionKey(model.instanceId)),
       ),
-    ],
-    [flatModels],
-  );
+      ...groupKeys,
+    ];
+  }, [flatModels]);
   const filteredItemKeys = useMemo((): string[] => {
-    const modelKeys = visibleModels.map((model) =>
-      modelPickerModelKey(model.instanceId, model.slug),
-    );
-    if (!legacySection) {
-      return modelKeys;
+    const keys: string[] = [];
+    for (const section of groupSections) {
+      const groupKey = modelPickerGroupSectionKey(section.instanceId, section.id);
+      keys.push(groupKey);
+      if (collapsedGroupKeys.has(groupKey)) {
+        continue;
+      }
+      for (const model of section.items) {
+        keys.push(modelPickerModelKey(model.instanceId, model.slug));
+      }
     }
-    modelKeys.splice(legacySection.currentModels.length, 0, legacySection.key);
-    return modelKeys;
-  }, [legacySection, visibleModels]);
+    if (!legacySection) {
+      return keys;
+    }
+    const legacyIndex = keys.findIndex((key) => {
+      const model = parseModelPickerModelKey(key);
+      return model !== null && legacySection.legacyModels.some(
+        (legacyModel) =>
+          legacyModel.instanceId === model.instanceId && legacyModel.slug === model.slug,
+      );
+    });
+    if (legacyIndex >= 0) {
+      keys.splice(legacyIndex, 0, legacySection.key);
+    } else {
+      keys.push(legacySection.key);
+    }
+    return keys;
+  }, [collapsedGroupKeys, groupSections, legacySection]);
   const filteredModelByKey = useMemo(
     (): ReadonlyMap<string, ModelPickerItem> =>
       new Map(
@@ -679,6 +779,11 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
             if (typeof modelKey !== "string") {
               return;
             }
+            const groupSection = parseModelPickerGroupSectionKey(modelKey);
+            if (groupSection) {
+              toggleGroupSection(modelKey);
+              return;
+            }
             const legacyInstanceId = parseModelPickerLegacySectionKey(modelKey);
             if (legacyInstanceId) {
               toggleLegacySection(legacyInstanceId);
@@ -723,6 +828,13 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                       ).preventBaseUIHandler?.();
                       e.preventDefault();
                       e.stopPropagation();
+                      const groupSection = parseModelPickerGroupSectionKey(
+                        highlightedModelKeyRef.current,
+                      );
+                      if (groupSection) {
+                        toggleGroupSection(highlightedModelKeyRef.current);
+                        return;
+                      }
                       const legacyInstanceId = parseModelPickerLegacySectionKey(
                         highlightedModelKeyRef.current,
                       );
@@ -755,6 +867,32 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                   extraData={modelListExtraData}
                   keyExtractor={(modelKey) => modelKey}
                   renderItem={({ item: modelKey, index }) => {
+                    const groupSection = groupSectionByKey.get(modelKey);
+                    if (groupSection) {
+                      return (
+                        <ModelPickerGroupHeader
+                          index={index}
+                          value={modelKey}
+                          title={groupSection.title}
+                          driverKind={groupSection.driverKind}
+                          slugPlaceholder={
+                            groupSection.slugPrefix
+                              ? `${groupSection.slugPrefix}/gemini-3.8-flash`
+                              : "model-slug"
+                          }
+                          isExpanded={!collapsedGroupKeys.has(modelKey)}
+                          onAddSlug={(raw) =>
+                            handleAddGroupSlug(
+                              groupSection.instanceId,
+                              groupSection.driverKind,
+                              groupSection.slugPrefix,
+                              raw,
+                            )
+                          }
+                          onOpenSettings={handleOpenProviderSettings}
+                        />
+                      );
+                    }
                     if (legacySection?.key === modelKey) {
                       return (
                         <ComboboxItem

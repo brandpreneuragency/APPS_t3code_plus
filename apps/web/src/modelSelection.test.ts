@@ -6,6 +6,7 @@ import { deriveEffectiveComposerModelState } from "./composerDraftStore";
 import { getComposerProviderState } from "./components/chat/composerProviderState";
 import { deriveProviderInstanceEntries } from "./providerInstances";
 import {
+  appendCustomModelToInstance,
   getCustomModelOptionsByInstance,
   getAppModelOptionsForInstance,
   resolveAppModelSelectionForInstance,
@@ -59,6 +60,45 @@ function settingsWithProviderInstances(): UnifiedSettings {
     },
   };
 }
+
+describe("appendCustomModelToInstance", () => {
+  it("appends a slug to an existing instance config", () => {
+    const instanceId = ProviderInstanceId.make("commandCode");
+    const result = appendCustomModelToInstance({
+      settings: {
+        ...DEFAULT_UNIFIED_SETTINGS,
+        providerInstances: {
+          [instanceId]: {
+            driver: ProviderDriverKind.make("commandCode"),
+            config: { customModels: ["google/gemini-3.5-flash"] },
+          },
+        },
+      },
+      instanceId,
+      driverKind: ProviderDriverKind.make("commandCode"),
+      slug: "google/gemini-3.8-flash",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.slug).toBe("google/gemini-3.8-flash");
+    expect(
+      (result.patch.providerInstances?.[instanceId]?.config as { customModels: string[] })
+        .customModels,
+    ).toEqual(["google/gemini-3.5-flash", "google/gemini-3.8-flash"]);
+  });
+
+  it("rejects an empty slug", () => {
+    expect(
+      appendCustomModelToInstance({
+        settings: DEFAULT_UNIFIED_SETTINGS,
+        instanceId: ProviderInstanceId.make("commandCode"),
+        driverKind: ProviderDriverKind.make("commandCode"),
+        slug: "   ",
+      }),
+    ).toEqual({ ok: false, error: "Enter a model slug." });
+  });
+});
 
 describe("instance-scoped model selection", () => {
   it("preserves server-provided legacy model metadata", () => {
