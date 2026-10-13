@@ -19,6 +19,23 @@ describe("ThreadArchiveBlockedError", () => {
 });
 
 describe("requestThreadUnpinConfirmation", () => {
+  it("cancels a confirmation when its initiating target disappears while the dialog is open", async () => {
+    let valid = true;
+    let confirmDecision!: (value: boolean) => void;
+    const resultPromise = requestThreadUnpinConfirmation({
+      enabled: true,
+      title: "Pinned thread",
+      isTargetValid: () => valid,
+      confirm: () =>
+        new Promise<boolean>((resolve) => {
+          confirmDecision = resolve;
+        }),
+    });
+    valid = false;
+    confirmDecision(true);
+    expect(await resultPromise).toMatchObject({ _tag: "Success", value: false });
+  });
+
   it("skips the dialog when confirmation is disabled", async () => {
     let callCount = 0;
     const result = await requestThreadUnpinConfirmation({

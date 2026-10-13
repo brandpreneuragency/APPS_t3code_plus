@@ -28,6 +28,7 @@ import {
 } from "./TextGenerationUtils.ts";
 import * as OpenCodeRuntime from "../provider/opencodeRuntime.ts";
 import * as OpenCodeServerOwner from "../provider/OpenCodeServerOwner.ts";
+import type { OpenCodeWorkGuardShape } from "../provider/OpenCodeWorkGuard.ts";
 
 const OpenCodeTextGenerationOperation = Schema.Literals([
   "generateCommitMessage",
@@ -172,12 +173,14 @@ function getOpenCodeTextResponse(parts: ReadonlyArray<unknown> | undefined): str
 
 export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration")(function* (
   openCodeSettings: OpenCodeSettings,
+  environment?: NodeJS.ProcessEnv,
+  workGuard?: OpenCodeWorkGuardShape,
 ) {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const openCodeRuntime = yield* OpenCodeRuntime.OpenCodeRuntime;
   const serverOwner = yield* OpenCodeServerOwner.OpenCodeServerOwner;
 
-  const runOpenCodeJson = Effect.fn("runOpenCodeJson")(function* <S extends Schema.Top>(input: {
+  const runOpenCodeJsonInternal = Effect.fn("runOpenCodeJson")(function* <S extends Schema.Top>(input: {
     readonly operation: OpenCodeTextGenerationOperation;
     readonly cwd: string;
     readonly prompt: string;
@@ -199,13 +202,103 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
         resolveAttachmentPath({ attachmentsDir: serverConfig.attachmentsDir, attachment }),
     });
 
+    const runAgainstV2Server = Effect.fn("OpenCodeTextGeneration.runAgainstV2Server")(
+      function* (
+        server: Pick<
+          OpenCodeRuntime.OpenCodeServerConnection,
+          "url" | "serverPassword" | "version" | "protocol"
+        >,
+      ) {
+        const client = openCodeRuntime.createOpenCodeV2Client({
+          baseUrl: server.url,
+          directory: input.cwd,
+          ...(server.serverPassword !== undefined ? { serverPassword: server.serverPassword } : {}),
+        });
+        const session = yield* OpenCodeRuntime.runOpenCodeSdk("session.create", () =>
+          client.session.create({
+            title: `T3 Code ${input.operation}`,
+            location: { directory: input.cwd },
+            permissions: [{ action: "*", resource: "*", effect: "deny" }],
+          }),
+        );
+        const selectedAgent = getModelSelectionStringOptionValue(input.modelSelection, "agent");
+        const selectedVariant = getModelSelectionStringOptionValue(input.modelSelection, "variant");
+        yield* OpenCodeRuntime.runOpenCodeSdk("session.switchModel", () =>
+          client.session.switchModel({
+            sessionID: session.id,
+            model: {
+              id: parsedModel.modelID,
+              providerID: parsedModel.providerID,
+              ...(selectedVariant ? { variant: selectedVariant } : {}),
+            },
+          }),
+        );
+        if (selectedAgent) {
+          yield* OpenCodeRuntime.runOpenCodeSdk("session.switchAgent", () =>
+            client.session.switchAgent({ sessionID: session.id, agent: selectedAgent }),
+          );
+        }
+        yield* OpenCodeRuntime.runOpenCodeSdk("session.prompt", () =>
+          client.session.prompt({
+            sessionID: session.id,
+            text: input.prompt,
+            ...(fileParts.length > 0
+              ? {
+                  files: fileParts.map((part) => ({
+                    uri: part.url,
+                    ...(part.filename ? { name: part.filename } : {}),
+                    description: part.mime,
+                  })),
+                }
+              : {}),
+          }),
+        );
+        yield* OpenCodeRuntime.runOpenCodeSdk("session.wait", () =>
+          client.session.wait({ sessionID: session.id }),
+        );
+        const messages = yield* OpenCodeRuntime.runOpenCodeSdk("message.list", () =>
+          client.message.list({ sessionID: session.id, order: "desc", limit: 1, type: "assistant" }),
+        );
+        const assistant = messages.data.find((message) => message.type === "assistant");
+        const promptFailure = getOpenCodePromptFailure(assistant?.error);
+        if (promptFailure) {
+          return yield* new OpenCodeTextGenerationPromptResponseError({
+            operation: input.operation,
+            cwd: input.cwd,
+            sessionId: session.id,
+            providerId: parsedModel.providerID,
+            modelId: parsedModel.modelID,
+            ...(promptFailure.name ? { providerErrorName: promptFailure.name } : {}),
+            providerMessage: promptFailure.message,
+          });
+        }
+        const responseParts: ReadonlyArray<unknown> | undefined = assistant?.content;
+        const rawText = getOpenCodeTextResponse(responseParts);
+        if (rawText.length === 0) {
+          return yield* new OpenCodeTextGenerationEmptyOutputError({
+            operation: input.operation,
+            cwd: input.cwd,
+            sessionId: session.id,
+            providerId: parsedModel.providerID,
+            modelId: parsedModel.modelID,
+            responsePartCount: responseParts?.length ?? 0,
+            textPartCount: (responseParts ?? []).filter(isOpenCodeTextPart).length,
+          });
+        }
+        return rawText;
+      },
+    );
+
     const runAgainstServer = Effect.fn("runOpenCodeJson.runAgainstServer")(
       function* (
         server: Pick<
           OpenCodeRuntime.OpenCodeServerConnection,
-          "url" | "serverPassword" | "version"
+          "url" | "serverPassword" | "version" | "protocol"
         >,
       ) {
+        if (server.protocol === "v2") {
+          return yield* runAgainstV2Server(server);
+        }
         const client = openCodeRuntime.createOpenCodeSdkClient({
           baseUrl: server.url,
           directory: input.cwd,
@@ -328,6 +421,7 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
               ...(openCodeSettings.serverPassword
                 ? { serverPassword: openCodeSettings.serverPassword }
                 : {}),
+              ...(environment ? { environment } : {}),
             })
             .pipe(Effect.flatMap(runAgainstServer), Effect.scoped)
         : serverOwner.withServer(runAgainstServer);
@@ -358,6 +452,18 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
       }),
     );
   });
+
+  const runOpenCodeJson = <S extends Schema.Top>(input: {
+    readonly operation: OpenCodeTextGenerationOperation;
+    readonly cwd: string;
+    readonly prompt: string;
+    readonly outputSchemaJson: S;
+    readonly modelSelection: ModelSelection;
+    readonly attachments?: ReadonlyArray<ChatAttachment> | undefined;
+  }) => {
+    const effect = runOpenCodeJsonInternal(input);
+    return workGuard ? workGuard.runTextGeneration(effect) : effect;
+  };
 
   const generateCommitMessage: TextGeneration.TextGeneration["Service"]["generateCommitMessage"] =
     Effect.fn("OpenCodeTextGeneration.generateCommitMessage")(function* (input) {

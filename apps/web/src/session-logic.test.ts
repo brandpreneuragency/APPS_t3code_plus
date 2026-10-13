@@ -61,6 +61,17 @@ function makeActivity(overrides: {
   };
 }
 
+describe("provider reasoning", () => {
+  it("shows reasoning details as thinking work entries", () => {
+    expect(deriveWorkLogEntries([makeActivity({
+      kind: "reasoning", tone: "info", summary: "Thinking",
+      payload: { itemType: "reasoning", detail: "Inspect the existing code." },
+    })])).toEqual([expect.objectContaining({
+      tone: "thinking", label: "Thinking", detail: "Inspect the existing code.",
+    })]);
+  });
+});
+
 describe("derivePendingApprovals", () => {
   it("tracks open approvals and removes resolved ones", () => {
     const activities: OrchestrationThreadActivity[] = [
@@ -250,6 +261,67 @@ describe("derivePendingApprovals", () => {
 });
 
 describe("derivePendingUserInputs", () => {
+  it("keeps text-only questions so users can answer them in the composer", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: {
+          requestId: "req-text-input",
+          questions: [
+            {
+              id: "project_name",
+              header: "Project name",
+              question: "What should the project be called?",
+              options: [],
+            },
+          ],
+        },
+      }),
+    ];
+
+    expect(derivePendingUserInputs(activities)).toEqual([
+      {
+        requestId: "req-text-input",
+        createdAt: "2026-02-23T00:00:00.000Z",
+        questions: [
+          {
+            id: "project_name",
+            header: "Project name",
+            question: "What should the project be called?",
+            options: [],
+            multiSelect: false,
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("preserves the V2 opt-in custom-answer origin through activity projection", () => {
+    const pending = derivePendingUserInputs([
+      makeActivity({
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: {
+          requestId: "req-v2-custom-origin",
+          questions: [
+            {
+              id: "deployment",
+              header: "Deployment",
+              question: "Which deployment should be used?",
+              options: [{ label: "Production", description: "Production environment" }],
+              customAnswerOrigin: "tagged",
+            },
+          ],
+        },
+      }),
+    ]);
+
+    expect(pending[0]?.questions[0]?.customAnswerOrigin).toBe("tagged");
+  });
+
   it("tracks open structured prompts and removes resolved ones", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

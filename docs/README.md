@@ -6,6 +6,7 @@
 - [Permission modes](./user/permission-modes.md)
 - [Keyboard shortcuts](./user/keybindings.md)
 - [Organizing threads](./user/thread-sidebar.md)
+- [Saved prompt library](./user/prompt-library.md)
 - [Review usage](./user/usage.md)
 - [Review the model catalogue](./user/model-catalogue.md)
 - [Customize a project icon](./user/project-settings.md)

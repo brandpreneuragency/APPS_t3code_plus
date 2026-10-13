@@ -80,6 +80,44 @@ update snapshot enrichment. Other providers retain their existing refresh policy
 T3 Code does not own an external OpenCode process. Native configuration changes there can require
 an external reload or restart before T3 Code's next refresh sees them.
 
+### OpenCode V1, V2, and account switching
+
+The OpenCode runtime resolves the server capability and version once for a connection, then routes
+through a dedicated V1 or V2 adapter. It does not treat an arbitrary V2 request failure as a reason
+to fall back to V1. V1 keeps its existing SDK path. V2 uses the version-matched `@opencode/client`
+API. Account switching is a V2 capability; V1 list requests report it as unsupported while V1 chat
+and inventory remain available.
+
+Each adapter writes a versioned resume cursor containing its OpenCode session ID. The V1 and V2
+adapters reject the other protocol's cursor with an explicit validation error. V2 also verifies the
+saved session's working directory before resuming. A failed lookup or a directory mismatch leaves
+the saved T3 thread intact; the adapter does not silently start an empty V2 session.
+
+The account capability belongs to an OpenCode `ProviderInstance` and is resolved by instance ID at
+the server RPC boundary. Its client uses that instance's selected environment, URL, password, and
+environment overrides. Remote requests therefore reach the selected remote OpenCode server, not the
+web or desktop host. The service reads `integration.get(openai)`, exposes only `credential`
+connections, and derives the active ID from the first credential connection in OpenCode's resolved
+connection order. `env` connections are never selectable. Credential records and OpenCode's native
+credential store remain owned by OpenCode; T3 sends only the credential ID, a sanitized label, and
+the method to the client.
+
+Account activation requires `AuthAccessWriteScope`; standard pairing scopes do not include it.
+The server serializes activation with OpenCode work admission using one guard shared by all
+OpenCode instances in the T3 environment. The guard covers turn submission and runtime turns,
+pending permissions and forms, and text-generation helpers. Before mutation, the service also checks
+V2 `session.active`, permission requests, and forms so visible work from another OpenCode process
+blocks the change. The activation endpoint is called once and read back from OpenCode before the
+result is returned. If that readback cannot determine the active ID, the state is explicitly
+unknown; the service never retries or rolls back an ambiguous mutation. Provider refresh runs while
+the guard is held, then the registry publishes the refreshed provider snapshot to connected clients.
+
+The guard only coordinates T3 work in one server environment. Separate processes that talk to the
+same external OpenCode server do not share that mutex; the V2 activity check reduces this race but
+does not provide a cross-process lock. Clients refresh account state when the Settings section
+opens and on manual refresh. External account changes do not currently have a dedicated account
+event.
+
 The shared server's idle shutdown does not clear the catalog. Failed discovery keeps the last
 known models, slash commands, and skills through the registry's existing merge rules. A successful
 empty inventory is authoritative. Existing threads keep their explicit model identifier and
@@ -171,6 +209,26 @@ when a request opens (approval) or user input is requested, via
 [claude]: ../../apps/server/src/provider/Drivers/ClaudeDriver.ts
 [cursor]: ../../apps/server/src/provider/Drivers/CursorDriver.ts
 [grok]: ../../apps/server/src/provider/Drivers/GrokDriver.ts
+
+## Hermes reasoning
+
+Hermes ACP model discovery supplies reasoning option descriptors to the shared
+model capability contract. The web composer, desktop, mobile, and Settings use
+these descriptors through their existing generic option pickers.
+
+Standard Hermes Python entry points run a process-local bridge from
+`apps/server/src/provider/acp/HermesAcpBridge.ts`. It advertises
+`t3:reasoning-effort` and applies it to the session agent's `reasoning_config`,
+including after a model rebuild. The bridge reads Hermes's own supported levels
+and default resolver; it does not modify the Hermes installation, global config,
+or another session. Custom shell launchers retain their native behavior and do
+not advertise this capability.
+
+To exercise the bridge against an installed Hermes ACP package, set
+`T3CODE_HERMES_PYTHON` to that environment's Python executable and run the focused
+`HermesAcpBridge.test.ts` test. It uses a temporary Hermes home and disposable
+session agents without credentials or model requests.
+
 [hermes]: ../../apps/server/src/provider/Drivers/HermesDriver.ts
 [command-code]: ../../apps/server/src/provider/Drivers/CommandCodeDriver.ts
 [opencode]: ../../apps/server/src/provider/Drivers/OpenCodeDriver.ts

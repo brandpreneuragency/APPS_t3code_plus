@@ -749,6 +749,11 @@ export function createServerEnvironmentAtoms<R, E>(
     tag: WS_METHODS.serverGetModelCatalogueCredentialStatus,
     staleTimeMs: 300_000,
   });
+  const openCodeAccounts = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:server:opencode-accounts",
+    tag: WS_METHODS.serverListOpenCodeAccounts,
+    staleTimeMs: 0,
+  });
 
   return {
     configValueAtom,
@@ -791,6 +796,7 @@ export function createServerEnvironmentAtoms<R, E>(
     }),
     modelCatalogue,
     modelCatalogueCredentialStatus,
+    openCodeAccounts,
     configProjection,
     welcome: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:welcome",
@@ -805,6 +811,14 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.serverRefreshProviders,
       concurrency: {
         mode: "singleFlight",
+        key: ({ environmentId }) => environmentId,
+      },
+    }),
+    activateOpenCodeAccount: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:activate-opencode-account",
+      tag: WS_METHODS.serverActivateOpenCodeAccount,
+      concurrency: {
+        mode: "serial",
         key: ({ environmentId }) => environmentId,
       },
     }),

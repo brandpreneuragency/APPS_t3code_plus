@@ -86,7 +86,7 @@ function appendUnavailableOpenCodeSelection(
   rawModels: ReadonlyArray<ServerProvider["models"][number]>,
   provider: ProviderDriverKind,
   selectedModel: string | null | undefined,
-  hiddenModels: ReadonlyArray<string>,
+  unavailableModels: ReadonlyArray<string>,
 ): AppModelOption[] {
   if (provider !== "opencode") return options;
   const slug = normalizeCustomModelSlug(selectedModel);
@@ -95,7 +95,7 @@ function appendUnavailableOpenCodeSelection(
   // A model that exists in the raw catalog can be absent from `options`
   // because the user hid it. Keep that preference authoritative.
   if (rawModels.some((model) => model.slug === slug)) return options;
-  if (hiddenModels.includes(slug)) return options;
+  if (unavailableModels.includes(slug)) return options;
   if (options.some((option) => option.slug === slug)) return options;
 
   return [...options, { slug, name: slug, isCustom: false, isUnavailable: true }];
@@ -117,25 +117,34 @@ function toAppModelOption(model: ServerProvider["models"][number]): AppModelOpti
 function readInstanceModelPreferences(
   settings: UnifiedSettings,
   instanceId: ProviderInstanceId,
-): { readonly hiddenModels: ReadonlyArray<string>; readonly modelOrder: ReadonlyArray<string> } {
-  return (
-    settings.providerModelPreferences?.[instanceId] ?? {
-      hiddenModels: [],
-      modelOrder: [],
-    }
-  );
+): {
+  readonly hiddenModels: ReadonlyArray<string>;
+  readonly archivedModels: ReadonlyArray<string>;
+  readonly modelOrder: ReadonlyArray<string>;
+} {
+  const preferences = settings.providerModelPreferences?.[instanceId];
+  return {
+    hiddenModels: preferences?.hiddenModels ?? [],
+    archivedModels: preferences?.archivedModels ?? [],
+    modelOrder: preferences?.modelOrder ?? [],
+  };
 }
 
 function applyInstanceModelPreferences(
   options: ReadonlyArray<AppModelOption>,
   preferences: {
     readonly hiddenModels: ReadonlyArray<string>;
+    readonly archivedModels: ReadonlyArray<string>;
     readonly modelOrder: ReadonlyArray<string>;
   },
 ): AppModelOption[] {
   const hiddenModels = new Set(preferences.hiddenModels);
+  const archivedModels = new Set(preferences.archivedModels);
   return sortModelsForProviderInstance(
-    options.filter((option) => option.isCustom || !hiddenModels.has(option.slug)),
+    options.filter(
+      (option) =>
+        !archivedModels.has(option.slug) && (option.isCustom || !hiddenModels.has(option.slug)),
+    ),
     { modelOrder: preferences.modelOrder },
   );
 }
@@ -208,7 +217,7 @@ export function getAppModelOptions(
     rawModels,
     provider,
     selectedModel,
-    preferences.hiddenModels,
+    [...preferences.hiddenModels, ...preferences.archivedModels],
   );
 }
 
@@ -252,7 +261,7 @@ export function getAppModelOptionsForInstance(
     entry.models,
     entry.driverKind,
     selectedModel,
-    preferences.hiddenModels,
+    [...preferences.hiddenModels, ...preferences.archivedModels],
   );
 }
 
@@ -292,16 +301,21 @@ export function resolveAppModelSelectionForInstance(
   }
   if (resolutionOptions?.preserveUnavailableSelection && entry.driverKind === "opencode") {
     const unavailableSelection = normalizeCustomModelSlug(selectedModel);
-    const hiddenModels = readInstanceModelPreferences(settings, entry.instanceId).hiddenModels;
-    if (unavailableSelection && !hiddenModels.includes(unavailableSelection)) {
+    const preferences = readInstanceModelPreferences(settings, entry.instanceId);
+    if (
+      unavailableSelection &&
+      !preferences.hiddenModels.includes(unavailableSelection) &&
+      !preferences.archivedModels.includes(unavailableSelection)
+    ) {
       return unavailableSelection;
     }
   }
+  const archivedModels = readInstanceModelPreferences(settings, entry.instanceId).archivedModels;
   return (
     options.find((option) => option.isDefault)?.slug ??
     options[0]?.slug ??
-    entry.models.find((model) => model.isDefault)?.slug ??
-    entry.models[0]?.slug ??
+    entry.models.find((model) => model.isDefault && !archivedModels.includes(model.slug))?.slug ??
+    entry.models.find((model) => !archivedModels.includes(model.slug))?.slug ??
     null
   );
 }
@@ -394,10 +408,19 @@ export function resolveAppModelSelectionState(
     // When the instance changed due to fallback (e.g. selected instance was disabled),
     // don't carry over the old instance's model — use the fallback instance's default.
     const selectedModel = selectedEntry ? selection.model : null;
+    const archivedModels = readInstanceModelPreferences(settings, entry.instanceId).archivedModels;
+    const candidates = [
+      ...entry.models.map((candidate) => candidate.slug),
+      ...readInstanceCustomModels(settings, entry.instanceId, entry.driverKind),
+    ];
+    const allCandidatesArchived =
+      candidates.length > 0 && candidates.every((candidate) => archivedModels.includes(candidate));
+    const defaultModel = DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER[entry.driverKind];
     const model =
       resolveAppModelSelectionForInstance(entry.instanceId, settings, providers, selectedModel) ??
-      entry.models[0]?.slug ??
-      DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER[entry.driverKind];
+      (allCandidatesArchived || (defaultModel && archivedModels.includes(defaultModel))
+        ? null
+        : defaultModel);
     if (!model) {
       return createModelSelection(entry.instanceId, "", []);
     }

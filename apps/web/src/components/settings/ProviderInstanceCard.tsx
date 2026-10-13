@@ -15,6 +15,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   isProviderDriverKind,
   resolveProviderInstanceEnabled,
+  type EnvironmentId,
   type ProviderInstanceConfig,
   type ProviderInstanceEnvironmentVariable,
   type ProviderInstanceId,
@@ -40,6 +41,7 @@ import type { DriverOption } from "./providerDriverMeta";
 import { providerSettingsTabClassName } from "./providerSettingsTabs";
 import { ProviderSettingsForm } from "./ProviderSettingsForm";
 import { ProviderModelsSection } from "./ProviderModelsSection";
+import { OpenCodeAccountSection } from "./OpenCodeAccountSection";
 import { ProviderInstanceIcon, providerInstanceInitials } from "../chat/ProviderInstanceIcon";
 import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
@@ -352,6 +354,7 @@ function ProviderEnvironmentSection(props: {
 }
 
 interface ProviderInstanceCardProps {
+  readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
   readonly instance: ProviderInstanceConfig;
   readonly driverOption: DriverOption | undefined;
@@ -360,6 +363,7 @@ interface ProviderInstanceCardProps {
   readonly selected?: boolean | undefined;
   readonly onSelect?: (() => void) | undefined;
   readonly readOnly?: boolean | undefined;
+  readonly canManageOpenCodeAccounts: boolean;
   readonly onUpdate: (nextInstance: ProviderInstanceConfig) => void;
   /**
    * Pass `undefined` to hide the delete button entirely. Built-in default
@@ -376,9 +380,11 @@ interface ProviderInstanceCardProps {
    * omit it.
    */
   readonly headerAction?: ReactNode | undefined;
+  readonly archivedModels: ReadonlyArray<string>;
   readonly hiddenModels: ReadonlyArray<string>;
   readonly favoriteModels: ReadonlyArray<string>;
   readonly modelOrder: ReadonlyArray<string>;
+  readonly onArchivedModelsChange: (next: ReadonlyArray<string>) => void;
   readonly onHiddenModelsChange: (next: ReadonlyArray<string>) => void;
   readonly onFavoriteModelsChange: (next: ReadonlyArray<string>) => void;
   readonly onModelOrderChange: (next: ReadonlyArray<string>) => void;
@@ -406,6 +412,7 @@ interface ProviderInstanceCardProps {
  *     false wins, then envelope, then config, then the driver default).
  */
 export function ProviderInstanceCard({
+  environmentId,
   instanceId,
   instance,
   driverOption,
@@ -414,19 +421,24 @@ export function ProviderInstanceCard({
   selected = false,
   onSelect,
   readOnly = false,
+  canManageOpenCodeAccounts,
   onUpdate,
   onDelete,
   headerAction,
+  archivedModels,
   hiddenModels,
   favoriteModels,
   modelOrder,
+  onArchivedModelsChange,
   onHiddenModelsChange,
   onFavoriteModelsChange,
   onModelOrderChange,
   onRunUpdate,
   isUpdating = false,
 }: ProviderInstanceCardProps) {
-  const [activeTab, setActiveTab] = useState<"configuration" | "models">("configuration");
+  const [activeTab, setActiveTab] = useState<"configuration" | "models" | "archived">(
+    "configuration",
+  );
   const enabled = resolveProviderInstanceEnabled(instance);
   // A locally disabled provider reads "Disabled" with a muted dot even if its
   // last server status is stale. Enabled providers use the server status.
@@ -832,14 +844,24 @@ export function ProviderInstanceCard({
           Configuration
         </button>
         {driverOption !== undefined ? (
-          <button
-            type="button"
-            aria-pressed={visibleTab === "models"}
-            className={providerSettingsTabClassName(visibleTab === "models")}
-            onClick={() => setActiveTab("models")}
-          >
-            Models
-          </button>
+          <>
+            <button
+              type="button"
+              aria-pressed={visibleTab === "models"}
+              className={providerSettingsTabClassName(visibleTab === "models")}
+              onClick={() => setActiveTab("models")}
+            >
+              Models
+            </button>
+            <button
+              type="button"
+              aria-pressed={visibleTab === "archived"}
+              className={providerSettingsTabClassName(visibleTab === "archived")}
+              onClick={() => setActiveTab("archived")}
+            >
+              Archived
+            </button>
+          </>
         ) : null}
       </div>
 
@@ -899,6 +921,15 @@ export function ProviderInstanceCard({
               />
             ) : null}
 
+            {mode === "editor" && String(instance.driver) === "opencode" ? (
+              <OpenCodeAccountSection
+                environmentId={environmentId}
+                instanceId={instanceId}
+                readOnly={readOnly}
+                canManage={canManageOpenCodeAccounts}
+              />
+            ) : null}
+
             {driverOption === undefined ? (
               <div>
                 <p className="text-xs text-muted-foreground">
@@ -916,17 +947,20 @@ export function ProviderInstanceCard({
             inert={readOnly}
             aria-disabled={readOnly || undefined}
             className={cn("px-4 py-5 lg:h-full lg:min-h-0", readOnly && "opacity-50 select-none")}
-            hidden={visibleTab !== "models"}
+            hidden={visibleTab === "configuration"}
           >
             <ProviderModelsSection
               instanceId={instanceId}
+              view={visibleTab === "archived" ? "archived" : "models"}
               driverKind={driverKind}
               models={modelsForDisplay}
               customModels={customModels}
+              archivedModels={archivedModels}
               hiddenModels={hiddenModels}
               favoriteModels={favoriteModels}
               modelOrder={modelOrder}
               onChange={updateCustomModels}
+              onArchivedModelsChange={onArchivedModelsChange}
               onHiddenModelsChange={onHiddenModelsChange}
               onFavoriteModelsChange={onFavoriteModelsChange}
               onModelOrderChange={onModelOrderChange}

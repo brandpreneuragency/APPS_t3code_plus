@@ -17,7 +17,7 @@ import {
 } from "../opencodeRuntime.ts";
 import * as OpenCodeServerOwner from "../OpenCodeServerOwner.ts";
 import { checkOpenCodeProviderStatus } from "./OpenCodeProvider.ts";
-import type { OpenCodeInventory } from "../opencodeRuntime.ts";
+import type { OpenCodeInventory, OpenCodeV2Inventory } from "../opencodeRuntime.ts";
 const decodeOpenCodeSettings = Schema.decodeSync(OpenCodeSettings);
 
 const DEFAULT_VERSION_STDOUT = "opencode 1.14.19\n";
@@ -35,6 +35,8 @@ const runtimeMock = {
   state: {
     runVersionError: null as Error | null,
     versionStdout: DEFAULT_VERSION_STDOUT,
+    serverVersion: "1.14.19",
+    serverProtocol: undefined as "v1" | "v2" | undefined,
     inventoryError: null as Error | null,
     connectionError: null as Error | null,
     inventoryCwd: null as string | null,
@@ -49,10 +51,19 @@ const runtimeMock = {
       agents: [] as unknown[],
       skills: [] as unknown[],
     } as unknown,
+    v2Inventory: {
+      providers: [],
+      models: [],
+      agents: [],
+      skills: [],
+      integrations: [],
+    } as unknown,
   },
   reset() {
     this.state.runVersionError = null;
     this.state.versionStdout = DEFAULT_VERSION_STDOUT;
+    this.state.serverVersion = "1.14.19";
+    this.state.serverProtocol = undefined;
     this.state.inventoryError = null;
     this.state.connectionError = null;
     this.state.inventoryCwd = null;
@@ -62,6 +73,13 @@ const runtimeMock = {
       providerList: { connected: [], all: [] as unknown[], default: {} },
       agents: [] as unknown[],
       skills: [] as unknown[],
+    };
+    this.state.v2Inventory = {
+      providers: [],
+      models: [],
+      agents: [],
+      skills: [],
+      integrations: [],
     };
   },
 };
@@ -84,7 +102,10 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
         ...(effectiveServerPassword !== undefined
           ? { serverPassword: effectiveServerPassword }
           : {}),
-        version: "1.14.19",
+        version: runtimeMock.state.serverVersion,
+        ...(runtimeMock.state.serverProtocol
+          ? { protocol: runtimeMock.state.serverProtocol }
+          : {}),
         isRunning: Effect.succeed(true),
         exitCode: Effect.never,
       };
@@ -108,7 +129,10 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
       return {
         url: serverUrl ?? "http://127.0.0.1:4301",
         ...(serverPassword ? { serverPassword } : {}),
-        version: "1.14.19",
+        version: runtimeMock.state.serverVersion,
+        ...(runtimeMock.state.serverProtocol
+          ? { protocol: runtimeMock.state.serverProtocol }
+          : {}),
         exitCode: null,
         external: Boolean(serverUrl),
       };
@@ -127,6 +151,7 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
     runtimeMock.state.sdkClientInputs.push(input);
     return {} as unknown as ReturnType<OpenCodeRuntimeShape["createOpenCodeSdkClient"]>;
   },
+  createOpenCodeV2Client: () => ({}) as never,
   loadOpenCodeInventory: () =>
     runtimeMock.state.inventoryError
       ? Effect.fail(
@@ -137,6 +162,16 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
           }),
         )
       : Effect.succeed(runtimeMock.state.inventory as OpenCodeInventory),
+  loadOpenCodeV2Inventory: () =>
+    runtimeMock.state.inventoryError
+      ? Effect.fail(
+          new OpenCodeRuntimeError({
+            operation: "loadOpenCodeV2Inventory",
+            detail: runtimeMock.state.inventoryError.message,
+            cause: runtimeMock.state.inventoryError,
+          }),
+        )
+      : Effect.succeed(runtimeMock.state.v2Inventory as OpenCodeV2Inventory),
   loadInventoryFromCli: ({ cwd }) => {
     runtimeMock.state.inventoryCwd = cwd;
     return runtimeMock.state.inventoryError
@@ -379,6 +414,145 @@ it.layer(testLayer)("checkOpenCodeProviderStatus", (it) => {
       );
 
       NodeAssert.equal(runtimeMock.state.sdkClientInputs[0]?.serverPassword, "settings-password");
+    }),
+  );
+
+  it.effect("accepts the v-prefixed version printed by OpenCode V2", () =>
+    Effect.gen(function* () {
+      runtimeMock.state.versionStdout = "opencode v2.0.23\n";
+      runtimeMock.state.serverVersion = "2.0.23";
+      runtimeMock.state.serverProtocol = "v2";
+
+      const snapshot = yield* checkProvider(makeOpenCodeSettings());
+
+      NodeAssert.equal(snapshot.version, "2.0.23");
+      NodeAssert.equal(snapshot.status, "warning");
+      NodeAssert.match(snapshot.message ?? "", /OpenCode is available/);
+    }),
+  );
+
+  it.effect("keeps native available V2 providers without rejoining by integration ID", () =>
+    Effect.gen(function* () {
+      runtimeMock.state.versionStdout = "opencode 2.0.18\n";
+      runtimeMock.state.serverVersion = "2.0.18";
+      runtimeMock.state.serverProtocol = "v2";
+      runtimeMock.state.v2Inventory = {
+        providers: [
+          {
+            id: "environment-provider",
+            name: "Environment Provider",
+            activation: "auto",
+          },
+          {
+            id: "enabled-provider",
+            integrationID: "unconnected-integration",
+            name: "Enabled Provider",
+            activation: "enabled",
+          },
+          {
+            id: "id-fallback-provider",
+            name: "ID Fallback Provider",
+            activation: "auto",
+          },
+          {
+            id: "connected-auto-provider",
+            integrationID: "explicit-connected-integration",
+            name: "Connected Auto Provider",
+            activation: "auto",
+          },
+          {
+            id: "disabled-provider",
+            integrationID: "connected-integration",
+            name: "Disabled Provider",
+            activation: "disabled",
+          },
+        ],
+        models: [
+          {
+            providerID: "environment-provider",
+            modelID: "env-model",
+            name: "Environment Model",
+            variants: [],
+          },
+          {
+            providerID: "enabled-provider",
+            modelID: "enabled-model",
+            name: "Enabled Model",
+            variants: [],
+          },
+          {
+            providerID: "id-fallback-provider",
+            modelID: "fallback-model",
+            name: "ID Fallback Model",
+            variants: [],
+          },
+          {
+            providerID: "connected-auto-provider",
+            modelID: "connected-model",
+            name: "Connected Auto Model",
+            variants: [],
+          },
+          {
+            providerID: "disabled-provider",
+            modelID: "disabled-model",
+            name: "Disabled Model",
+            variants: [],
+          },
+          {
+            providerID: "native-unavailable-provider",
+            modelID: "unavailable-model",
+            name: "Unavailable Model",
+            variants: [],
+          },
+        ],
+        agents: [],
+        skills: [],
+        integrations: [
+          {
+            id: "unconnected-integration",
+            name: "Unconnected Integration",
+            methods: [],
+            connections: [],
+          },
+          {
+            id: "id-fallback-provider",
+            name: "ID Fallback Provider",
+            methods: [],
+            connections: [
+              { type: "credential", id: "fallback-credential", label: "Key", method: "key" },
+            ],
+          },
+          {
+            id: "explicit-connected-integration",
+            name: "Environment Integration",
+            methods: [],
+            connections: [{ type: "env", name: "OPENAI_API_KEY" }],
+          },
+          {
+            id: "connected-integration",
+            name: "Connected Integration",
+            methods: [],
+            connections: [
+              { type: "credential", id: "disabled-credential", label: "Key", method: "key" },
+            ],
+          },
+        ],
+      } as unknown as OpenCodeV2Inventory;
+
+      const snapshot = yield* checkProvider(makeOpenCodeSettings());
+
+      NodeAssert.equal(snapshot.version, "2.0.18");
+      NodeAssert.equal(snapshot.status, "ready");
+      NodeAssert.deepEqual(
+        snapshot.models.map((model) => model.slug),
+        [
+          "connected-auto-provider/connected-model",
+          "enabled-provider/enabled-model",
+          "environment-provider/env-model",
+          "id-fallback-provider/fallback-model",
+        ],
+      );
+      NodeAssert.match(snapshot.message ?? "", /4 upstream providers connected through OpenCode/);
     }),
   );
 

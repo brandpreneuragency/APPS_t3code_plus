@@ -1,6 +1,10 @@
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
+  type EnvironmentId,
   type FilesystemBrowseEntry,
   type KeybindingCommand,
+  type ProjectId,
+  type ScopedProjectRef,
   THREAD_JUMP_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
 import { filterFilesystemBrowseEntries } from "@t3tools/client-runtime/state/filesystem";
@@ -39,6 +43,7 @@ export type SearchOverlayMode = "command" | "files" | "content";
 
 export interface CommandPaletteOpenIntent {
   readonly kind: "add-project" | "new-thread-in";
+  readonly workspaceId?: string | null;
 }
 
 export interface CommandPaletteUiState {
@@ -50,9 +55,16 @@ export interface CommandPaletteUiState {
 export type CommandPaletteUiAction =
   | { readonly _tag: "SetOpen"; readonly open: boolean }
   | { readonly _tag: "ToggleMode"; readonly mode: SearchOverlayMode }
-  | { readonly _tag: "OpenAddProject" }
-  | { readonly _tag: "OpenNewThreadIn" }
+  | { readonly _tag: "OpenAddProject"; readonly workspaceId?: string | null }
+  | { readonly _tag: "OpenNewThreadIn"; readonly workspaceId?: string | null }
   | { readonly _tag: "ClearOpenIntent" };
+
+function intentWithOptionalWorkspace(
+  kind: CommandPaletteOpenIntent["kind"],
+  workspaceId: string | null | undefined,
+): CommandPaletteOpenIntent {
+  return workspaceId === undefined ? { kind } : { kind, workspaceId };
+}
 
 export function reduceCommandPaletteUiState(
   state: CommandPaletteUiState,
@@ -68,9 +80,17 @@ export function reduceCommandPaletteUiState(
         ? { ...state, open: false, openIntent: null }
         : { open: true, mode: action.mode, openIntent: null };
     case "OpenAddProject":
-      return { open: true, mode: "command", openIntent: { kind: "add-project" } };
+      return {
+        open: true,
+        mode: "command",
+        openIntent: intentWithOptionalWorkspace("add-project", action.workspaceId),
+      };
     case "OpenNewThreadIn":
-      return { open: true, mode: "command", openIntent: { kind: "new-thread-in" } };
+      return {
+        open: true,
+        mode: "command",
+        openIntent: intentWithOptionalWorkspace("new-thread-in", action.workspaceId),
+      };
     case "ClearOpenIntent":
       return state.openIntent ? { ...state, openIntent: null } : state;
   }
@@ -182,10 +202,111 @@ export type BuildThreadActionItemsThread = Pick<
   latestUserMessageAt?: string | null;
 };
 
+export function commandPaletteProjectKey(input: {
+  readonly environmentId: string;
+  readonly projectId: string;
+}): string {
+  return `${input.environmentId}:${input.projectId}`;
+}
+
+export function commandPaletteThreadValue(input: {
+  readonly environmentId: string;
+  readonly id: string;
+}): string {
+  return `thread:${input.environmentId}:${input.id}`;
+}
+
+/** Same-route palette picks still need an explicit custom-workspace reveal. */
+export function workspaceRevealForPaletteThread(input: {
+  readonly selectedWorkspaceId: string | null;
+  readonly threadKey: string;
+  readonly projectKey?: string;
+}): {
+  readonly workspaceId: string;
+  readonly threadKey: string;
+  readonly projectKey?: string;
+} | null {
+  if (input.selectedWorkspaceId == null || input.selectedWorkspaceId.length === 0) {
+    return null;
+  }
+  if (input.threadKey.length === 0) {
+    return null;
+  }
+  return {
+    workspaceId: input.selectedWorkspaceId,
+    threadKey: input.threadKey,
+    ...(input.projectKey && input.projectKey.length > 0 ? { projectKey: input.projectKey } : {}),
+  };
+}
+
+export function buildProjectPresentationMaps<
+  TProject extends {
+    readonly environmentId: string;
+    readonly id: string;
+    readonly title: string;
+    readonly workspaceRoot: string;
+    readonly faviconPath?: string | null | undefined;
+  },
+>(
+  projects: ReadonlyArray<TProject>,
+): {
+  readonly titleByKey: Map<string, string>;
+  readonly cwdByKey: Map<string, string>;
+  readonly faviconPathByKey: Map<string, string | null>;
+} {
+  const titleByKey = new Map<string, string>();
+  const cwdByKey = new Map<string, string>();
+  const faviconPathByKey = new Map<string, string | null>();
+  for (const project of projects) {
+    const key = commandPaletteProjectKey({
+      environmentId: project.environmentId,
+      projectId: project.id,
+    });
+    titleByKey.set(key, project.title);
+    cwdByKey.set(key, project.workspaceRoot);
+    faviconPathByKey.set(key, project.faviconPath ?? null);
+  }
+  return { titleByKey, cwdByKey, faviconPathByKey };
+}
+
+export function resolvePaletteProjectSearchOpen<
+  TThread extends BuildThreadActionItemsThread,
+>(input: {
+  readonly project: { readonly environmentId: EnvironmentId; readonly id: ProjectId };
+  readonly useLogicalGrouping: boolean;
+  readonly groupMemberKeys: ReadonlySet<string> | null;
+  readonly threads: ReadonlyArray<TThread>;
+  readonly sortOrder: SidebarThreadSortOrder;
+}):
+  | { readonly kind: "thread"; readonly thread: TThread }
+  | { readonly kind: "draft"; readonly projectRef: ScopedProjectRef } {
+  const exactKey = `${input.project.environmentId}:${input.project.id}`;
+  const memberKeys =
+    input.useLogicalGrouping && input.groupMemberKeys && input.groupMemberKeys.size > 0
+      ? input.groupMemberKeys
+      : new Set([exactKey]);
+  const latestThread =
+    sortThreads(
+      input.threads.filter(
+        (thread) =>
+          thread.archivedAt === null &&
+          memberKeys.has(`${thread.environmentId}:${thread.projectId}`),
+      ),
+      input.sortOrder,
+    )[0] ?? null;
+  if (latestThread) {
+    return { kind: "thread", thread: latestThread };
+  }
+  return {
+    kind: "draft",
+    projectRef: scopeProjectRef(input.project.environmentId, input.project.id),
+  };
+}
+
 export function buildThreadActionItems<TThread extends BuildThreadActionItemsThread>(input: {
   threads: ReadonlyArray<TThread>;
   activeThreadId?: Thread["id"];
-  projectTitleById: ReadonlyMap<Project["id"], string>;
+  projectTitleByKey: ReadonlyMap<string, string>;
   sortOrder: SidebarThreadSortOrder;
   icon: ReactNode;
   /** Optional content rendered inline before the title text per-thread. */
@@ -195,7 +316,9 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   /** Optional rich description (e.g. favicon + workspace icons). Falls back to text. */
   renderDescription?: (thread: TThread, meta: { projectTitle: string | undefined }) => ReactNode;
   getContentMatch?: (thread: TThread) => CommandPaletteThreadContentMatch | undefined;
-  runThread: (thread: Pick<SidebarThreadSummary, "environmentId" | "id">) => Promise<void>;
+  runThread: (
+    thread: Pick<SidebarThreadSummary, "environmentId" | "id" | "projectId">,
+  ) => Promise<void>;
   limit?: number;
 }): CommandPaletteActionItem[] {
   const sortedThreads = sortThreads(
@@ -206,7 +329,12 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
     input.limit === undefined ? sortedThreads : sortedThreads.slice(0, input.limit);
 
   return visibleThreads.map((thread) => {
-    const projectTitle = input.projectTitleById.get(thread.projectId);
+    const projectTitle = input.projectTitleByKey.get(
+      commandPaletteProjectKey({
+        environmentId: thread.environmentId,
+        projectId: thread.projectId,
+      }),
+    );
     const descriptionParts: string[] = [];
 
     if (projectTitle) {
@@ -229,7 +357,7 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
     return Object.assign(
       {
         kind: "action" as const,
-        value: `thread:${thread.id}`,
+        value: commandPaletteThreadValue(thread),
         searchTerms: [
           thread.title,
           projectTitle ?? ``,

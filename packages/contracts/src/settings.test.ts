@@ -16,12 +16,54 @@ import {
 } from "./settings.ts";
 
 const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
+const encodeClientSettingsJson = Schema.encodeSync(Schema.fromJsonString(ClientSettingsSchema));
+const decodeClientSettingsJson = Schema.decodeSync(Schema.fromJsonString(ClientSettingsSchema));
 const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 const decodeAntigravitySettings = Schema.decodeUnknownSync(AntigravitySettings);
+
+describe("ClientSettings model archives", () => {
+  const instanceId = ProviderInstanceId.make("opencode");
+
+  it("loads older preferences without converting hidden models into archived models", () => {
+    const preferences = { hiddenModels: ["google/gemini"], modelOrder: ["google/gemini"] };
+    const decoded = decodeClientSettings({
+      providerModelPreferences: { [instanceId]: preferences },
+    });
+    expect(decoded.providerModelPreferences[instanceId]).toEqual(preferences);
+    expect(decoded.providerModelPreferences[instanceId]?.archivedModels ?? []).toEqual([]);
+  });
+
+  it("round-trips archives independently of visibility and order through persisted settings and patches", () => {
+    const preferences = {
+      archivedModels: ["google/gemini", "local-custom"],
+      hiddenModels: ["google/gemini"],
+      modelOrder: ["local-custom", "google/gemini"],
+    };
+    const patch = decodeClientSettingsPatch({
+      providerModelPreferences: { [instanceId]: preferences },
+    });
+    const encoded = encodeClientSettingsJson(decodeClientSettings(patch));
+    const decoded = decodeClientSettingsJson(encoded);
+    expect(decoded.providerModelPreferences[instanceId]).toEqual(preferences);
+  });
+
+  it("accepts restoring the last archived model without losing hidden models", () => {
+    const patch = decodeClientSettingsPatch({
+      providerModelPreferences: {
+        [instanceId]: { archivedModels: [], hiddenModels: ["google/gemini"] },
+      },
+    });
+    expect(patch.providerModelPreferences?.[instanceId]).toEqual({
+      archivedModels: [],
+      hiddenModels: ["google/gemini"],
+      modelOrder: [],
+    });
+  });
+});
 
 describe("AntigravitySettings", () => {
   it("uses the preferred discovered-model fallback", () => {

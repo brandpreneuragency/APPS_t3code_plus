@@ -104,6 +104,11 @@ export type AcpParsedSessionEvent =
       readonly rawPayload: unknown;
     }
   | {
+      readonly _tag: "ReasoningDelta";
+      readonly text: string;
+      readonly rawPayload: unknown;
+    }
+  | {
       readonly _tag: "ContentDelta";
       readonly itemId?: string;
       readonly text: string;
@@ -810,6 +815,12 @@ export function parseSessionUpdateEvent(params: EffectAcpSchema.SessionNotificat
           toolCall,
           rawPayload: boundToolCallRawPayload(params, upd, toolCall),
         });
+      }
+      break;
+    }
+    case "agent_thought_chunk": {
+      if (upd.content.type === "text" && upd.content.text.length > 0) {
+        events.push({ _tag: "ReasoningDelta", text: upd.content.text, rawPayload: params });
       }
       break;
     }

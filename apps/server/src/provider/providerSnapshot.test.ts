@@ -11,9 +11,21 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import {
   isCommandMissingCause,
+  parseGenericCliVersion,
   providerModelsFromSettings,
   spawnAndCollect,
 } from "./providerSnapshot.ts";
+
+describe("parseGenericCliVersion", () => {
+  it.each(["2.0.23", "opencode 2.0.23", "opencode v2.0.23\n", "v2.0.23"])(
+    "reads the version from %j",
+    (output) => expect(parseGenericCliVersion(output)).toBe("2.0.23"),
+  );
+
+  it("does not read a version embedded in an unrelated word", () => {
+    expect(parseGenericCliVersion("invalid2.0.23")).toBeNull();
+  });
+});
 
 const OPENCODE_CUSTOM_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [

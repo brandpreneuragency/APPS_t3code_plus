@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 import { classifyTaskAgentKind, ProviderRuntimeEvent } from "./providerRuntime.ts";
 
 const decodeRuntimeEvent = Schema.decodeUnknownSync(ProviderRuntimeEvent);
+const encodeRuntimeEvent = Schema.encodeUnknownSync(ProviderRuntimeEvent);
 
 describe("ProviderRuntimeEvent", () => {
   it("accepts fork-provided driver kinds as branded slugs", () => {
@@ -105,6 +106,40 @@ describe("ProviderRuntimeEvent", () => {
     }
     expect(parsed.payload.questions[0]?.id).toBe("sandbox_mode");
     expect(parsed.payload.questions[0]?.options).toHaveLength(2);
+  });
+
+  it("round-trips the opt-in custom answer origin on user-input questions", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "user-input.requested",
+      eventId: "event-custom-origin",
+      provider: "opencode",
+      sessionId: "runtime-session-v2",
+      createdAt: "2026-02-28T00:00:01.000Z",
+      threadId: "thread-v2",
+      requestId: "request-custom-origin",
+      payload: {
+        questions: [
+          {
+            id: "deployment",
+            header: "Deployment",
+            question: "Which deployment should be used?",
+            options: [{ label: "Production", description: "Production environment" }],
+            customAnswerOrigin: "tagged",
+          },
+        ],
+      },
+    });
+
+    expect(parsed.type).toBe("user-input.requested");
+    if (parsed.type !== "user-input.requested") {
+      throw new Error("expected user-input.requested");
+    }
+    expect(parsed.payload.questions[0]?.customAnswerOrigin).toBe("tagged");
+    expect(encodeRuntimeEvent(parsed)).toMatchObject({
+      payload: {
+        questions: [{ customAnswerOrigin: "tagged" }],
+      },
+    });
   });
 
   it("decodes user-input.resolved with answer map", () => {

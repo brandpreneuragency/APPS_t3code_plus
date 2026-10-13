@@ -1,5 +1,6 @@
 import {
   AuthAccessReadScope,
+  AuthAccessWriteScope,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthRelayReadScope,
@@ -50,6 +51,9 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.serverGetModelCatalogue]: AuthOrchestrationReadScope,
   [WS_METHODS.serverGetModelCatalogueCredentialStatus]: AuthOrchestrationReadScope,
   [WS_METHODS.serverSetModelCatalogueCredential]: AuthOrchestrationOperateScope,
+  [WS_METHODS.serverListOpenCodeAccounts]: AuthOrchestrationReadScope,
+  // Account activation changes credentials for the whole OpenCode server.
+  [WS_METHODS.serverActivateOpenCodeAccount]: AuthAccessWriteScope,
   [WS_METHODS.serverSignalProcess]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverReportClientActivity]: AuthOrchestrationReadScope,
   [WS_METHODS.serverReportHostPowerState]: AuthOrchestrationOperateScope,

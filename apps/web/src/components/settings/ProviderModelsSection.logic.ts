@@ -9,6 +9,48 @@ export type ProviderModelGroup<T> = {
   readonly models: ReadonlyArray<T>;
 };
 
+/**
+ * Splits the live catalogue into the active and archived views. Archived slugs
+ * that are no longer returned by a provider remain visible so users can
+ * restore them after a provider catalogue changes.
+ */
+export function partitionProviderModels(
+  models: ReadonlyArray<ServerProviderModel>,
+  archivedModels: ReadonlyArray<string>,
+): {
+  readonly models: ReadonlyArray<ServerProviderModel>;
+  readonly archivedModels: ReadonlyArray<ServerProviderModel>;
+} {
+  const archivedSet = new Set(archivedModels);
+  const liveBySlug = new Map(models.map((model) => [model.slug, model]));
+  const archivedLiveModels = models.filter((model) => archivedSet.has(model.slug));
+  const missingArchivedModels = [...archivedSet].flatMap((slug) => {
+    if (liveBySlug.has(slug)) return [];
+    return [
+      { slug, name: slug, isCustom: false, capabilities: null } satisfies ServerProviderModel,
+    ];
+  });
+
+  return {
+    models: models.filter((model) => !archivedSet.has(model.slug)),
+    archivedModels: [...archivedLiveModels, ...missingArchivedModels],
+  };
+}
+
+export function nextArchivedModelsForArchive(
+  archivedModels: ReadonlyArray<string>,
+  slug: string,
+): ReadonlyArray<string> {
+  return archivedModels.includes(slug) ? archivedModels : [...archivedModels, slug];
+}
+
+export function nextArchivedModelsForRestore(
+  archivedModels: ReadonlyArray<string>,
+  slug: string,
+): ReadonlyArray<string> {
+  return archivedModels.filter((model) => model !== slug);
+}
+
 function trimmedSubProvider(model: Pick<ServerProviderModel, "subProvider">): string | undefined {
   const subProvider = model.subProvider?.trim();
   return subProvider && subProvider.length > 0 ? subProvider : undefined;

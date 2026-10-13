@@ -16,6 +16,7 @@ import {
   buildPendingUserInputAnswers,
   buildThreadFeed,
   derivePendingApprovals,
+  derivePendingUserInputs,
   deriveThreadFeedPresentation,
   isPendingUserInputOptionSelected,
   setPendingUserInputCustomAnswer,
@@ -74,7 +75,94 @@ const multiSelectQuestion = {
   multiSelect: true,
 } as const;
 
+const taggedCustomQuestion = {
+  id: "deployment",
+  header: "Deployment",
+  question: "Which deployment should be used?",
+  options: [{ label: "Production", description: "Production environment" }],
+  customAnswerOrigin: "tagged",
+  multiSelect: false,
+} as const;
+
 describe("pending user input answers", () => {
+  it("keeps text-only questions for custom answers", () => {
+    const pending = derivePendingUserInputs([
+      makeActivity({
+        id: EventId.make("text-only-user-input"),
+        kind: "user-input.requested",
+        summary: "User input requested",
+        createdAt: "2026-08-24T00:00:00.000Z",
+        payload: {
+          requestId: "req-text-input",
+          questions: [
+            {
+              id: "project_name",
+              header: "Project name",
+              question: "What should the project be called?",
+              options: [],
+            },
+          ],
+        },
+      }),
+    ]);
+
+    expect(pending).toEqual([
+      {
+        requestId: "req-text-input",
+        createdAt: "2026-08-24T00:00:00.000Z",
+        questions: [
+          {
+            id: "project_name",
+            header: "Project name",
+            question: "What should the project be called?",
+            options: [],
+            multiSelect: false,
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("preserves the opt-in custom-answer origin and distinguishes matching custom text", () => {
+    const pending = derivePendingUserInputs([
+      makeActivity({
+        id: EventId.make("v2-custom-origin-input"),
+        kind: "user-input.requested",
+        summary: "User input requested",
+        createdAt: "2026-08-24T00:00:00.000Z",
+        payload: {
+          requestId: "req-v2-custom-origin",
+          questions: [
+            {
+              id: "deployment",
+              header: "Deployment",
+              question: "Which deployment should be used?",
+              options: [{ label: "Production", description: "Production environment" }],
+              customAnswerOrigin: "tagged",
+            },
+          ],
+        },
+      }),
+    ]);
+    expect(pending[0]?.questions[0]?.customAnswerOrigin).toBe("tagged");
+
+    expect(
+      buildPendingUserInputAnswers([taggedCustomQuestion], {
+        deployment: { selectedOptionLabels: ["Production"] },
+      }),
+    ).toEqual({ deployment: "Production" });
+    expect(
+      buildPendingUserInputAnswers([taggedCustomQuestion], {
+        deployment: { customAnswer: "Production" },
+      }),
+    ).toEqual({ deployment: { _tag: "custom", value: "Production" } });
+    expect(
+      buildPendingUserInputAnswers([singleSelectQuestion], {
+        runtime: { customAnswer: "Go" },
+      }),
+    ).toEqual({ runtime: "Go" });
+  });
+
   it("replaces single-select options and toggles multi-select options", () => {
     expect(
       togglePendingUserInputOptionSelection(

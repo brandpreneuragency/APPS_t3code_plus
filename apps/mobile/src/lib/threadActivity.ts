@@ -228,14 +228,12 @@ function parseUserInputQuestions(
           };
         })
         .filter((option): option is UserInputQuestion["options"][number] => option !== null);
-      if (options.length === 0) {
-        return null;
-      }
       return {
         id: question.id,
         header: question.header,
         question: question.question,
         options,
+        ...(question.customAnswerOrigin === "tagged" ? { customAnswerOrigin: "tagged" } : {}),
         multiSelect: question.multiSelect === true,
       };
     })
@@ -419,7 +417,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     ...(taskId ? { taskId } : {}),
     label: taskLabel || activity.summary,
     tone:
-      activity.kind === "task.progress"
+      activity.kind === "task.progress" || activity.kind === "reasoning"
         ? "thinking"
         : activity.tone === "approval"
           ? "info"
@@ -1709,15 +1707,20 @@ export function togglePendingUserInputOptionSelection(
 export function buildPendingUserInputAnswers(
   questions: ReadonlyArray<UserInputQuestion>,
   draftAnswers: Record<string, PendingUserInputDraftAnswer>,
-): Record<string, string | ReadonlyArray<string>> | null {
-  const answers: Record<string, string | ReadonlyArray<string>> = {};
+): Record<string, unknown> | null {
+  const answers: Record<string, unknown> = {};
 
   for (const question of questions) {
-    const answer = resolvePendingUserInputAnswer(question, draftAnswers[question.id]);
+    const draft = draftAnswers[question.id];
+    const answer = resolvePendingUserInputAnswer(question, draft);
     if (!answer) {
       return null;
     }
-    answers[question.id] = answer;
+    const customAnswer = normalizeDraftAnswer(draft?.customAnswer);
+    answers[question.id] =
+      customAnswer && question.customAnswerOrigin === "tagged"
+        ? { _tag: "custom", value: customAnswer }
+        : answer;
   }
 
   return answers;

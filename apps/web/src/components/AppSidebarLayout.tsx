@@ -1,24 +1,33 @@
 import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   useEffect,
+  useLayoutEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 
-import { isElectron } from "../env";
+import { isElectron, sidebarWorkspacesEnabled } from "../env";
+import { useComposerDraftStore } from "../composerDraftStore";
+import { invalidateWorkspaceThreadRevealUnless } from "./sidebar/workspaceNavigation";
 import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalStorage";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useLegacySidebarEnabled } from "../hooks/useSettings";
+import { resolveThreadRouteTarget } from "../threadRoutes";
 import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import WorkspaceSidebar from "./sidebar/WorkspaceSidebar";
+import { useWorkspaceSwipe } from "./sidebar/useWorkspaceSwipe";
+import { useSidebarWorkspaceStore } from "../sidebarWorkspaceStore";
 import { useProjects } from "../state/entities";
 import {
   resolveInitialThreadSidebarWidth,
@@ -109,13 +118,74 @@ function ProjectProjectionRetention() {
   return null;
 }
 
+function isWorkspacePreservingRoute(pathname: string): boolean {
+  return (
+    pathname === "/settings" ||
+    pathname.startsWith("/settings/") ||
+    pathname === "/usage" ||
+    pathname === "/models" ||
+    pathname === "/limits" ||
+    pathname === "/projects" ||
+    pathname.startsWith("/projects/") ||
+    pathname === "/pull-requests"
+  );
+}
+
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const legacySidebarEnabled = useLegacySidebarEnabled();
   // Settings routes show the settings nav in place of whichever thread
   // sidebar is active.
   const pathname = useLocation({ select: (location) => location.pathname });
+  const routeTarget = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteTarget(params),
+  });
+  const routeDraftSession = useComposerDraftStore((state) =>
+    routeTarget?.kind === "draft" ? state.getDraftSession(routeTarget.draftId) : null,
+  );
+  const routeThreadKey =
+    routeTarget?.kind === "server"
+      ? scopedThreadKey(routeTarget.threadRef)
+      : routeDraftSession
+        ? scopedThreadKey(
+            scopeThreadRef(routeDraftSession.environmentId, routeDraftSession.threadId),
+          )
+        : null;
   const isOnSettings = pathname === "/settings" || pathname.startsWith("/settings/");
+  const previousPathnameRef = useRef(pathname);
+  const selectedWorkspaceId = useSidebarWorkspaceStore((state) => state.selectedWorkspaceId);
+  const workspaces = useSidebarWorkspaceStore((state) => state.workspaces);
+  const showCustomWorkspace =
+    sidebarWorkspacesEnabled &&
+    selectedWorkspaceId != null &&
+    workspaces.some((workspace) => workspace.id === selectedWorkspaceId);
+  const workspaceSwipe = useWorkspaceSwipe(sidebarWorkspacesEnabled && !isOnSettings);
+
+  useLayoutEffect(() => {
+    if (!sidebarWorkspacesEnabled) return;
+    const previousPathname = previousPathnameRef.current;
+    previousPathnameRef.current = pathname;
+
+    if (isWorkspacePreservingRoute(pathname)) {
+      // A pending target may legitimately be requested while Settings is
+      // mounted. Preserve it on the initial utility render, but cancel it
+      // when the user actually leaves a chat for a utility route or moves
+      // between unrelated utility pages.
+      if (previousPathname !== pathname) {
+        invalidateWorkspaceThreadRevealUnless({ workspaceId: null, threadKey: null });
+      }
+      return;
+    }
+    // A draft route may be present before its session has hydrated. Keep the
+    // pending reveal in that interval so the mounted workspace can consume it
+    // once its target row becomes available.
+    if (routeTarget !== null && routeThreadKey === null) return;
+    invalidateWorkspaceThreadRevealUnless({
+      workspaceId: selectedWorkspaceId,
+      threadKey: routeThreadKey,
+    });
+  }, [pathname, routeTarget, routeThreadKey, selectedWorkspaceId]);
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // Subscribed rather than read once: the clamp must track live window size,
@@ -183,11 +253,12 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
 
   return (
     <SidebarProvider className="h-dvh! min-h-0!" defaultOpen style={sidebarProviderStyle}>
-      <ProjectProjectionRetention />
+      {sidebarWorkspacesEnabled ? <ProjectProjectionRetention /> : null}
       <Sidebar
         side="left"
         collapsible="offcanvas"
         data-app-sidebar=""
+        {...workspaceSwipe}
         className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
         resizable={{
           maxWidth: sidebarMaximumWidth,
@@ -204,6 +275,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
             <SidebarChromeHeader isElectron={isElectron} />
             <SettingsSidebarNav pathname={pathname} />
           </>
+        ) : showCustomWorkspace ? (
+          <WorkspaceSidebar key={selectedWorkspaceId ?? "default"} />
         ) : legacySidebarEnabled ? (
           <LegacyThreadSidebar />
         ) : (

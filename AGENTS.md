@@ -1,11 +1,25 @@
 # This is a fork — don't forget
 
+## Local task authority
+
+This root is sufficient for ordinary work by coding agents, including Hermes;
+that does not itself change the product's provider integrations. Implement the
+current request with scoped autonomy; review-only requests authorize no edits.
+Preserve WIP and running applications. Destructive/system-wide changes, installs,
+pushes, rebases, deployments and external sharing require explicit task scope.
+Real user data and credentials are not routine test fixtures. BRAIN stays
+read-only through tools/delegates; VAULT is excluded.
+Read `../../AGENTS.md` and relevant destination rules only for cross-project
+outputs, plans, owner context, ATLAS or system work. Local outputs belong in
+MOTHER/WORKSPACE; durable context/inbox/Work in ATLAS_MEMORY, not BRAIN
+(systems/methods/patterns). Local work needs no VPS connection.
+
 This folder is **your copy** of T3 Code. You can still pull **their new updates**.
 
 Three copies of the same project:
 
 1. **Theirs** (`upstream`) — pingdotgg’s original repo
-2. **Yours on GitHub** (`origin`) — `brandpreneuragency/t3code`
+2. **Yours on GitHub** (`origin`) — `brandpreneuragency/APPS_t3code_plus` (configured URL retains the older `t3code` alias)
 3. **Yours on this PC** — this `T3-FORK` folder
 
 Two branches:
@@ -13,7 +27,10 @@ Two branches:
 - **`main`** — keep this matching theirs. Don’t put custom work here.
 - **`my-mods`** — this is where you make your changes. Stay on this branch.
 
-When T3 ships updates:
+When explicitly authorized to synchronize upstream (including the push and
+rebase/history change), inspect status, branch, remotes and affected commits
+first. Do not switch/rebase a dirty checkout or discard WIP. The following is
+the established workflow, not standing execution permission:
 
 ```powershell
 git checkout main
@@ -35,7 +52,9 @@ This fork installs as **T3 Code +**, next to official T3 Code. It does not repla
 - Install folder: `%LOCALAPPDATA%\Programs\T3 Code +` (official T3 stays in `Programs\t3code`)
 - Do not run official T3 Code and T3 Code + at the same time.
 
-Rebuild the installer from this repo:
+For a separately scoped installer task, run from this repo root. Installation
+of dependencies (`vp i`), packaging, installing the app and publication are
+distinct effects; run only those authorized and required:
 
 ```powershell
 vp i
@@ -44,9 +63,19 @@ vp run dist:desktop:win:x64
 
 The installer lands in `release\`.
 
+## Fork changes
+
+Local `my-mods` notes that upstream does not have live in [`dev.md`](dev.md).
+Read it before changing the sidebar or assuming the upstream layout.
+
 ---
 
 # T3 Code
+
+The product philosophy and Theo's note below retain the **upstream maintainer
+voice**. They are not claims that Theo/Julius are the current requester;
+Burak directs this fork. Read `CONTRIBUTING.md` when preparing an upstream
+contribution, not as a requirement to open a discussion for local fork work.
 
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs (Codex, Claude Code, Cursor, Grok, OpenCode) and serves web, desktop, and mobile clients.
 
@@ -93,7 +122,7 @@ Of note: Most T3 Code contributions will come from T3 Code itself, often control
 We need to be on the same page with terminology. When communicating, use this language:
 
 - **you** means the agent reading this file and changing T3 Code.
-- **we, us, and maintainers** mean Theo, Julius and the people building T3 Code. These are who you are talking to now.
+- **we, us, and maintainers** in upstream text mean Theo, Julius and upstream maintainers, not the current fork owner/requester.
 - **user** means the person using T3 Code to direct coding agents.
 - **agent** means the coding agent a user runs inside T3 Code. Depending on context, that may also include you.
 - **provider** means the agent runtime or harness T3 Code talks to, such as Codex, Claude, Cursor, or OpenCode.
@@ -107,8 +136,16 @@ We need to be on the same page with terminology. When communicating, use this la
 ## The three ways to hurt yourself
 
 1. **Killing by pattern.** Never `pkill -f`, `pgrep | kill`, or `kill` a PID you found by matching a name, path, or worktree string. Your own agent process has this worktree's path in its argv, and this machine runs several other dev servers at once. Kill only a PID you captured at spawn, or the owner of your port from `ss -H -ltnp` after confirming `/proc/<pid>/cwd` is your worktree.
-2. **Writing to the live install.** `~/.t3/userdata` is the developer's real T3 Code database, in use while you work. Reading it and copying from it are fine, and a good way to get real test data (see Test data). Never start a server against it, never open it read-write, never clean it up.
-3. **Baking in origins.** Never set `VITE_HTTP_URL` or `VITE_WS_URL` for dev. Dev is single-origin and Vite proxies `/api`, `/ws`, `/oauth`, and `/.well-known`. Setting them bakes localhost into the bundle and silently breaks every remote browser.
+2. **Accessing the live install.** `~/.t3/userdata` and `~/.t3-fork/userdata` are real application data. No routine reads or copies: use fixtures. Exact real-data access needs task-specific authority (see Test data). Never point a test server at live state, open it read-write or clean it up.
+3. **Baking in origins.** Never manually set `VITE_HTTP_URL` or `VITE_WS_URL` for browser dev. Browser dev is single-origin and Vite proxies `/api`, `/ws`, `/oauth`, and `/.well-known`. Setting them bakes localhost into the bundle and silently breaks every remote browser. Desktop mode deliberately supplies loopback URLs through the runner; keep that distinction.
+
+On Windows, use the captured spawn PID. For an authorized stop without that
+receipt, inspect the port's `OwningProcess` via PowerShell `Get-NetTCPConnection`
+and the exact PID's executable/command line/parent via `Get-CimInstance
+Win32_Process`; verify ownership against the task's launch records. These are
+PowerShell commands, not Bash builtins. A name/path match alone is insufficient;
+if ownership or working directory cannot be established, do not terminate it.
+Never use image-name or wildcard process kills.
 
 ## Hit every surface
 
@@ -127,27 +164,31 @@ The most common defect in this repo is a change that works on the path you teste
 - `vp i` installs. Worktrees get this from the t3.json setup script; if module resolution looks broken, it probably did not run.
 - `vp run dev` starts server and web. In a worktree, state defaults to that worktree's gitignored `.t3`, which deliberately outranks an ambient `T3CODE_HOME` so you cannot land on shared state by accident. An explicit `--home-dir` still wins.
 - Ports derive from the worktree path and are stable across restarts, but read the real ones from the `[dev-runner]` line since occupied ports shift.
-- Sharing over the tailnet is three steps: run `vp run dev --share` in the background, wait for the `pairingUrl:` line in its output, paste that full URL (token included) in your reply. Do not wire up `tailscale serve` by hand for this, and do not open the URL yourself.
-- The web app requires pairing. Hand over the pairing URL, not the bare origin. A URL without its token is useless to whoever you gave it to. If the token got consumed, mint a fresh one with `node apps/server/src/bin.ts pair` — note it carries standard scopes, while the startup URL carries admin scopes (needed for Settings → Connections management).
+- Tailnet sharing (`vp run dev --share`) is only for an explicit sharing task,
+  with an agreed audience and delivery channel. Do not configure `tailscale serve`
+  by hand or mint/open pairing URLs as routine verification.
+- The web app requires pairing. Pairing URLs are access credentials, not ordinary
+  output: never paste tokens into general chat, logs, reports or Git. Deliver one
+  only through the explicitly authorized private channel. The startup URL carries
+  admin scopes; `node apps/server/src/bin.ts pair` carries standard scopes.
 - Stop what you started, by the PID you tracked. See rule 1.
 
 ## Test data
 
-An empty database is a bad test. Seed your worktree's `.t3` with a copy of real data instead of pointing at live state:
+Use synthetic or already anonymized fixtures by default, with realistic content
+and edge cases. Verify the effective home before starting a test server.
 
-- Copy from `~/.t3/userdata` (the developer's real data, the most realistic test set) or `~/.t3/dev`. Worktree state lives at `<worktree>/.t3/userdata`.
-- Snapshot the database with `VACUUM INTO`, which is safe even while a server has the source open and yields one consistent file:
+If the task truly needs real data, obtain explicit authority for the exact
+dataset, read/snapshot action and isolated private destination. Open the source
+read-only and use a consistent SQLite backup or `VACUUM INTO` into a new,
+nonexistent destination. Verify canonical paths and ownership; never wildcard
+delete an existing sandbox to make room. Do not copy a live SQLite file directly;
+WAL/SHM consistency matters even when copying a stopped database.
 
-  ```bash
-  mkdir -p .t3/userdata
-  rm -f .t3/userdata/state.sqlite*  # VACUUM INTO refuses to overwrite
-  bun -e "new (require('bun:sqlite').Database)(process.env.HOME + '/.t3/userdata/state.sqlite', { readonly: true }).run(\"VACUUM INTO '.t3/userdata/state.sqlite'\")"
-  ```
-
-  A plain `cp` is only safe when no server has the source open, and must bring the `-wal` and `-shm` siblings along. A live file copy is a corrupt copy.
-
-- Bring `secrets` and `settings.json` only if the flow under test needs them.
-- Copy in, never symlink. Data flows one way: into your sandbox, never back out.
+Authorization for a database is not authorization for `secrets`, settings,
+provider transcripts or account access. Each requires explicit task-specific
+scope; prefer fake credentials and sanitized settings. Copy in, never symlink;
+never copy sandbox state back to live storage or upload it as test evidence.
 
 ## Verifying
 
@@ -156,7 +197,11 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
 - **Do not run repo-wide checks.** No `vp check`, no `vp run -r test`, no `vp run -r typecheck` unless I ask. CI owns the full suite.
 - Backend behavior changes ship with focused tests for that behavior.
 - The server is event-sourced and its async flows emit typed receipts. Wait on receipts and worker drains, never on sleeps or polling. A test that needs a timeout to pass is wrong.
-- Upon request, user-visible frontend changes should get one integrated pass in a real client: `test-t3-app` for web, `test-t3-mobile` for mobile. The primary agent does this once after integrating. Subagents do not launch their own dev servers. Ask permission before doing computer use or spinning up browsers.
+- For user-visible frontend work, a scoped local fixture-based browser check may
+  be part of the requested verification without repeated approval. Use the
+  available `test-t3-app`/`test-t3-mobile` workflow only when applicable; the primary
+  agent integrates once, and subagents do not launch dev servers. Desktop computer
+  use, real accounts/data and external sharing require their own explicit scope.
 
 ## Pull requests
 
@@ -171,7 +216,9 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
 ## Plans and work artifacts
 
 - Do not commit implementation plans, research notes, or agent scratch files. Keep temporary working material outside the worktree. `.plans/` is gitignored only as a safety net for legacy tooling.
-- Track active maintainer work in the GitHub issue or project item that owns it. External proposals follow `CONTRIBUTING.md` and belong in Ideas discussions.
+- For an authorized upstream contribution, track work in its existing GitHub
+  issue/project; external proposals follow `CONTRIBUTING.md`. Do not open or
+  update external records merely to perform a local fork task.
 - Put durable architecture, constraints, and decisions in `docs/internals/`. Update those docs when the product changes so agents find current facts instead of abandoned intentions.
 - A merged PR is the implementation record. Close or update its tracking item when the work lands; do not preserve a second checklist in the repository.
 
@@ -200,5 +247,29 @@ Full glossary with file links: `docs/internals/glossary.md`
 
 ## Additional tips
 
-- Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
-- Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
+- Follow the scoped verification rules above; dev mode never waives data,
+  credential, process-ownership or external-sharing boundaries.
+
+<!-- verified-project-workflow:2026-09-28 -->
+## Historical project/repository checkpoint
+
+Recorded 28 September 2026, Europe/Istanbul; remote equality and deployment
+state below are historical evidence, not a fresh online verification.
+
+- Local source: `C:/Users/burak/MOTHER/DEV/T3-FORK`; no corresponding
+  checkout was found in the scoped ATLAS/PROJECTS inventory.
+- Configured origin remains `https://github.com/brandpreneuragency/t3code.git`.
+  GitHub resolves it to `https://github.com/brandpreneuragency/APPS_t3code_plus`
+  (public; default branch main).
+- Upstream remains `https://github.com/pingdotgg/t3code.git`.
+- The existing main/upstream and my-mods/custom-work policy above remains the
+  project workflow. Current branch: my-mods, tracking origin/my-mods.
+- Local and GitHub my-mods HEAD both resolved to
+  `6f34ebca86f7a317e63ff6ed6277b64138852fed` at inspection. Existing dirty work
+  is additional to that commit and was not synchronized or published.
+- Delivery is the existing Windows T3 Code + installer flow described above.
+  Upstream-derived relay/release workflows are present; their presence alone
+  does not prove the fork's cloud services or scheduled release jobs are active.
+  Inspect workflow effects before an authorized main/tag push.
+- No local/VPS source mirror or deployment was configured by this inventory.
+  Recheck state before branch operations and preserve existing work.

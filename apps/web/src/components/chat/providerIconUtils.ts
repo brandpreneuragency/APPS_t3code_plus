@@ -70,6 +70,25 @@ export function getModelSubProviderLabel(
   return prefix && prefix.length > 0 ? prefix : undefined;
 }
 
+export function abbreviateSubProviderLabel(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  const alnumOnly = trimmed.replace(/[^A-Za-z0-9]/g, "");
+  if (alnumOnly.length === 0) {
+    return trimmed.slice(0, 3).toUpperCase();
+  }
+  return alnumOnly.slice(0, 3).toUpperCase();
+}
+
+export function getModelSubProviderShortLabel(
+  model: Pick<ModelEsque, "subProvider">,
+): string | undefined {
+  const full = getModelSubProviderLabel(model);
+  return full ? abbreviateSubProviderLabel(full) : undefined;
+}
+
 export function formatModelNameWithSubProvider(input: {
   readonly name: string;
   readonly subProvider?: string | undefined;

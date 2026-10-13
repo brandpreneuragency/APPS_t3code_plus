@@ -1,49 +1,53 @@
 ---
 description: Cursor Cloud environment setup and run notes for T3 Code (Cursor-specific; not for other editors/CI)
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Cursor Cloud specific instructions
 
-These notes apply only to Cursor Cloud agents (kept out of the shared `AGENTS.md` since T3 Code is
-developed in many places). They cover the pre-provisioned VM environment and non-obvious run caveats.
+Select these notes only for an actual Cursor Cloud task, not local Windows work.
+The root `AGENTS.md` safety, data and targeted-verification rules still apply.
+VM provisioning notes below are historical assumptions to verify, not installed
+toolchain evidence or permission to install packages, access accounts or share.
 
 ## Toolchain
 
-Pre-installed and wired into login shells (`~/.bashrc`/`~/.profile`): Node 24 (via nvm), the global
-`vp` (Vite+) CLI, and its bundled pnpm. `vp` is the package manager + task runner for this repo
-(`vp i`, `vp check`, `vp run typecheck`, `vp test`, `vp run --filter <pkg> <script>`).
+The historical Cloud image supplied Node 24 via nvm and `vp` (Vite+) with pnpm.
+Verify the current VM's toolchain against `package.json` (`engines.node: ^24.13.1`)
+before use. `vp` is the package/task runner; inspect the affected package scripts.
 
-- Node gotcha: the base image also ships an older Node on `/exec-daemon` that wins on `PATH` in
-  non-login shells. Run commands in a login shell (`bash -lc '...'`) or prepend
-  `$HOME/.nvm/versions/node/v24.13.1/bin` so Node 24 (`engines.node: ^24.13.1`) is used.
-- `vp check` also runs the formatter (not just lint); markdown edits must be formatter-clean. Run
-  `vp check --fix` before committing.
+- A Cloud non-login shell may select a different Node on PATH. Inspect the actual
+  executable/version; use a verified login-shell setup, not a guessed nvm path.
+- Use touched-file tests/lint and affected-package typechecks. Do not run global
+  `vp check --fix`, repo-wide formatting or root recursive checks by default.
 
 ## Running the web app
 
-- `npm run dev` (from repo root) starts contracts (watch), web (Vite, port 5733), and the server
-  (`node --watch`, port 13773) together, auto-wiring `VITE_HTTP_URL`/`VITE_WS_URL`. Use
-  `npm run dev:server` / `npm run dev:web` for one side. If base ports are taken it auto-offsets to
-  the next free pair, so read the actual ports from stdout. Avoid production `build`/`start` in dev.
-- Auth/pairing: the server is unauthenticated by default and prints a pairing URL to stdout on startup
-  (e.g. `http://localhost:5733/pair#token=XXXX`). Open that URL in the browser to pair before the web
-  UI can talk to the server. Server state (SQLite, auth, projects) lives under `~/.t3`
-  (`T3CODE_HOME`); multiple `npm run dev` instances bind different ports but share that same DB.
-- Agent providers are external CLIs (`codex`, `claude`, `cursor-agent`, `opencode`) probed on `PATH`.
-  Without one installed the UI loads but no agent can run. Claude Code
-  (`npm i -g @anthropic-ai/claude-code`) works headlessly using `ANTHROPIC_API_KEY` from the
-  environment (the server forwards `process.env` to the child; no interactive `claude auth login`
-  needed). Provider probing runs at startup and refreshes roughly every 5 minutes — restart the dev
-  server to pick up a newly installed provider CLI immediately.
+- Root `npm run dev` calls `scripts/dev-runner.ts dev`; `dev:server` and
+  `dev:web` select one side. Read actual ports/home from `[dev-runner]` output;
+  worktree offsets and occupied ports can change the selected values.
+- Browser dev is single-origin through Vite. In `dev`/`dev:web`, the runner
+  deletes `VITE_HTTP_URL`/`VITE_WS_URL` and sets `T3CODE_SINGLE_ORIGIN_DEV=1`.
+  Desktop mode deliberately supplies loopback URLs; do not copy that setup into
+  browser mode or treat it as permission to launch Desktop.
+- Home precedence: explicit nonempty `--home-dir`, then worktree `.t3`, then
+  ambient `T3CODE_HOME`, then the default home. Verify the resolved home is an
+  isolated fixture; multiple worktrees do not necessarily share `~/.t3`.
+- Pairing is required; do not describe the service as generally unauthenticated.
+  Pairing URLs carry credentials. Sharing, minting tokens and private delivery
+  follow root task-specific authorization, never routine setup output.
+- Provider execution requires the selected external provider runtime. Inspect
+  current provider configuration when relevant; this note authorizes neither
+  global CLI installation nor access to real accounts/credentials.
 
 ## Android native builds (apps/mobile)
 
-The Android toolchain is pre-installed and wired into login shells: OpenJDK 17
+Historical Cloud provisioning (recheck before use) included OpenJDK 17
 (`JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64`; the base image's default `java` is 21, so builds must
 use `JAVA_HOME`), and the Android SDK at `$HOME/Android/Sdk` (`ANDROID_HOME`/`ANDROID_SDK_ROOT`) with
 platform-tools, `platforms;android-36`, `build-tools;36.0.0`, `ndk;27.1.12297006`, and `cmake;3.22.1`.
-Gradle auto-downloads any additional pinned SDK packages on demand.
+Gradle may download pinned SDK packages. Installs, `prebuild --clean`, device
+operations and EAS cloud builds require an explicitly scoped mobile task.
 
 - Generate the native project first: from `apps/mobile`,
   `EXPO_NO_GIT_STATUS=1 APP_VARIANT=development npx expo prebuild --clean --platform android`
@@ -51,22 +55,25 @@ Gradle auto-downloads any additional pinned SDK packages on demand.
   minSdk 24, NDK `27.1.12297006` (see `react-native/gradle/libs.versions.toml`).
 - Build with Gradle from `apps/mobile/android`, e.g. `./gradlew :app:assembleDebug`. First build is
   slow (Kotlin + C++/NDK codegen). Limit ABIs to speed things up, e.g.
-  `-PreactNativeArchitectures=arm64-v8a`. Verified working end-to-end on a native module:
+  `-PreactNativeArchitectures=arm64-v8a`. A historical native-module check used:
   `./gradlew :react-native-worklets:assembleDebug` compiles Kotlin + C++ and emits an AAR + `.so`s.
-- No emulator: this VM has no `/dev/kvm` (nested virtualization), so a hardware-accelerated Android
+- Historical VM limitation: no `/dev/kvm` (recheck on the selected VM), so a hardware-accelerated Android
   emulator will not run. Use a physical device (`adb`) or EAS cloud builds (`vp run eas:android:*`) to
   actually run the app. The full IDE GUI is unnecessary here — the SDK/NDK/Gradle toolchain that
   Android Studio bundles is what is installed.
-- Known blocker for the full-app `:app:assembleDebug` (pre-existing, app-level — not the environment):
+- Historical, unverified blocker for full-app `:app:assembleDebug`:
   `:react-native-screens:compileDebugKotlin` fails because `patches/react-native-screens@4.25.2.patch`
   adds new codegen props (`subtitle`, `largeSubtitle`, `navigationItemStyle`,
   `headerCenterBarButtonItems`, `headerToolbarItems`) to the JS spec + iOS native code but includes no
   Android Kotlin setters, so the generated `ScreenStackHeaderConfigManagerInterface` is unimplemented.
   The mobile README documents only iOS for local builds and routes Android through EAS. Fixing local
   Android app builds requires an app/patch change (add the Android Kotlin setters), which is out of
-  scope for environment setup.
+  scope for environment setup. The cited patch is absent in this checkout;
+  do not assume this failure still exists or recreate it from these notes.
 
-## Known flaky tests (unrelated to setup)
+## Historical test reports (not current failures)
+
+Reproduce on the selected revision before calling a failure pre-existing/flaky.
 
 - `apps/server/src/git/GitManager.test.ts` (cross-repo PR metadata, can time out at 12s).
 - `apps/server/src/provider/Layers/ProviderRegistry.test.ts` (codex binaryPath re-probe ordering).

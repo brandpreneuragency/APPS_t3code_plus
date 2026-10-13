@@ -25,6 +25,7 @@ import * as ServerSettingsModule from "./serverSettings.ts";
 
 const decodeSettingsPatch = Schema.decodeUnknownEffect(ServerSettingsPatch);
 const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
+const decodeServerSettingsJson = Schema.decodeUnknownEffect(Schema.fromJsonString(ServerSettings));
 
 const makeServerSettingsLayer = () =>
   ServerSettingsModule.layer.pipe(
@@ -73,6 +74,48 @@ const recordProviderUsage = (provider: string, instanceId: string | null = provi
   });
 
 it.layer(NodeServices.layer)("server settings", (it) => {
+  it.effect("persists prompt library edits and broadcasts them to connected clients", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const settings = yield* ServerSettingsModule.ServerSettingsService;
+        const config = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const firstClient = yield* settings.subscribeChanges;
+        const secondClient = yield* settings.subscribeChanges;
+        const prompt = {
+          title: "Review",
+          text: "Review this change.\nFind bugs.",
+          favorite: false,
+          order: 0,
+          tags: ["Code"],
+        };
+        yield* settings.updateSettings({ promptLibrary: { first: prompt } });
+        const [firstUpdate, secondUpdate] = yield* Effect.all(
+          [Stream.runHead(firstClient), Stream.runHead(secondClient)],
+          { concurrency: "unbounded" },
+        );
+        assert.deepEqual(Option.getOrUndefined(firstUpdate)?.promptLibrary, { first: prompt });
+        assert.deepEqual(Option.getOrUndefined(secondUpdate)?.promptLibrary, { first: prompt });
+        yield* settings.updateSettings({ promptLibrary: { second: { ...prompt, order: 1 } } });
+        yield* settings.updateSettings({
+          promptLibrary: { first: { ...prompt, favorite: true, tags: [] } },
+        });
+        const persisted = yield* decodeServerSettingsJson(
+          yield* fileSystem.readFileString(config.settingsPath),
+        );
+        assert.deepEqual(persisted.promptLibrary, {
+          first: { ...prompt, favorite: true, tags: [] },
+          second: { ...prompt, order: 1 },
+        });
+        yield* settings.updateSettings({ promptLibrary: { first: null } });
+        const afterDeletion = yield* decodeServerSettingsJson(
+          yield* fileSystem.readFileString(config.settingsPath),
+        );
+        assert.deepEqual(afterDeletion.promptLibrary, { second: { ...prompt, order: 1 } });
+      }),
+    ).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
   it.effect("preserves context when reading a provider environment secret fails", () => {
     const platformCause = PlatformError.systemError({
       _tag: "PermissionDenied",

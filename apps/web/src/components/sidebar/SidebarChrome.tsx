@@ -231,9 +231,14 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   );
 });
 
-export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
+export const SidebarChromeFooter = memo(function SidebarChromeFooter({
+  switcher,
+}: {
+  switcher?: ReactNode;
+}) {
   return (
     <SidebarFooter className="p-[var(--sidebar-content-inset)]">
+      {switcher}
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />
       <SidebarUtilityMenu />

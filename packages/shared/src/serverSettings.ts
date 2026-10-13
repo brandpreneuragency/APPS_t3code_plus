@@ -172,6 +172,15 @@ export function applyServerSettingsPatch(
   const next = deepMerge(current, patchForMerge);
   const nextWithReplacementsBase = {
     ...next,
+    ...(patch.promptLibrary !== undefined
+      ? {
+          promptLibrary: Object.fromEntries(
+            Object.entries({ ...current.promptLibrary, ...patch.promptLibrary }).filter(
+              ([, prompt]) => prompt !== null,
+            ),
+          ),
+        }
+      : {}),
     ...(backgroundActivity !== undefined
       ? {
           backgroundActivity: {

@@ -1047,6 +1047,14 @@ const program = Effect.gen(function* () {
         },
       });
 
+      if (process.env.T3_ACP_EMIT_REASONING === "1") {
+        for (const text of ["Inspect ", "the code."]) {
+          yield* agent.client.sessionUpdate({
+            sessionId: requestedSessionId,
+            update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text } },
+          });
+        }
+      }
       yield* agent.client.sessionUpdate({
         sessionId: requestedSessionId,
         update: {
@@ -1054,6 +1062,12 @@ const program = Effect.gen(function* () {
           content: { type: "text", text: promptResponseText ?? "hello from mock" },
         },
       });
+      if (process.env.T3_ACP_EMIT_REASONING === "1") {
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Final check." } },
+        });
+      }
 
       return { stopReason: "end_turn" };
     }),

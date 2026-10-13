@@ -56,6 +56,7 @@ import {
   type OpenCodeServerConnection,
 } from "../opencodeRuntime.ts";
 import * as Option from "effect/Option";
+import type { OpenCodeWorkGuardShape } from "../OpenCodeWorkGuard.ts";
 
 const PROVIDER = ProviderDriverKind.make("opencode");
 
@@ -72,11 +73,16 @@ const OPENCODE_RESUME_VERSION = 1 as const;
  * rather than an error. Re-adopting the session id IS the resume mechanism —
  * OpenCode scopes a conversation's history by session id.
  */
-function parseOpenCodeResume(raw: unknown): { readonly sessionId: string } | undefined {
+function parseOpenCodeResume(
+  raw: unknown,
+): { readonly sessionId?: string; readonly issue?: string } | undefined {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return undefined;
   }
   const record = raw as Record<string, unknown>;
+  if (record.schemaVersion === 2) {
+    return { issue: "This thread has an OpenCode V2 session cursor. Reopen it with a V2 server." };
+  }
   if (record.schemaVersion !== OPENCODE_RESUME_VERSION) {
     return undefined;
   }
@@ -368,8 +374,10 @@ interface OpenCodeSessionContext {
 export interface OpenCodeAdapterLiveOptions {
   readonly instanceId?: ProviderInstanceId;
   readonly environment?: NodeJS.ProcessEnv;
+  readonly serverConnection?: OpenCodeServerConnection;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
+  readonly workGuard?: OpenCodeWorkGuardShape;
 }
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -2288,7 +2296,15 @@ export function makeOpenCodeAdapter(
         const serverUrl = openCodeSettings.serverUrl;
         const serverPassword = openCodeSettings.serverPassword;
         const directory = input.cwd ?? serverConfig.cwd;
-        const resumeSessionId = parseOpenCodeResume(input.resumeCursor)?.sessionId;
+        const resume = parseOpenCodeResume(input.resumeCursor);
+        if (resume?.issue) {
+          return yield* new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "startSession",
+            issue: resume.issue,
+          });
+        }
+        const resumeSessionId = resume?.sessionId;
         const existing = sessions.get(input.threadId);
         if (existing) {
           if (existing.session.status === "connecting" && !(yield* Ref.get(existing.stopped))) {
@@ -2305,13 +2321,13 @@ export function makeOpenCodeAdapter(
               // The runtime binds the server's lifetime to the Scope.Scope
               // we provide below — closing `sessionScope` kills the child
               // process automatically. No manual `server.close()` needed.
-              const server = yield* openCodeRuntime.connectToOpenCodeServer({
+              const server = options?.serverConnection ?? (yield* openCodeRuntime.connectToOpenCodeServer({
                 binaryPath,
                 directory,
                 serverUrl,
                 ...(serverPassword ? { serverPassword } : {}),
                 ...(options?.environment ? { environment: options.environment } : {}),
-              });
+              }));
               const client = openCodeRuntime.createOpenCodeSdkClient({
                 baseUrl: server.url,
                 directory,

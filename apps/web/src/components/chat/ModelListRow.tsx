@@ -4,6 +4,7 @@ import { StarIcon } from "lucide-react";
 import {
   getDisplayModelName,
   getModelSubProviderLabel,
+  getModelSubProviderShortLabel,
   getTriggerDisplayModelName,
   type ModelEsque,
   PROVIDER_ICON_BY_PROVIDER,
@@ -43,6 +44,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
 }) {
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[props.driverKind] ?? null;
   const subProviderLabel = getModelSubProviderLabel(props.model);
+  const subProviderShortLabel = getModelSubProviderShortLabel(props.model);
   const displayName = props.useTriggerLabel
     ? getTriggerDisplayModelName(props.model)
     : getDisplayModelName(
@@ -67,8 +69,13 @@ export const ModelListRow = memo(function ModelListRow(props: {
       <div className="min-w-0 flex-1 text-left">
         <div className="flex min-w-0 items-center gap-2">
           <div className="min-w-0 truncate text-xs font-medium leading-snug">
-            {subProviderLabel ? (
-              <span className="font-normal text-muted-foreground">{subProviderLabel} / </span>
+            {subProviderShortLabel ? (
+              <span
+                className="font-normal text-muted-foreground"
+                title={subProviderLabel ?? subProviderShortLabel}
+              >
+                {subProviderShortLabel} /{" "}
+              </span>
             ) : null}
             {displayName}
           </div>

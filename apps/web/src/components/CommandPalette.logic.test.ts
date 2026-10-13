@@ -4,11 +4,16 @@ import type { Thread } from "../types";
 import {
   browseInputEndPaddingClass,
   buildBrowseGroups,
+  buildProjectPresentationMaps,
   buildThreadActionItems,
+  commandPaletteProjectKey,
+  commandPaletteThreadValue,
   enumerateCommandPaletteItems,
   filterPinnedBrowseEntries,
   filterCommandPaletteGroups,
   reduceCommandPaletteUiState,
+  resolvePaletteProjectSearchOpen,
+  workspaceRevealForPaletteThread,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
 
@@ -91,6 +96,21 @@ describe("reduceCommandPaletteUiState", () => {
       mode: "command",
       openIntent: { kind: "new-thread-in" },
     });
+  });
+
+  it("captures an initiating workspace id on add-project and new-thread-in intents", () => {
+    expect(
+      reduceCommandPaletteUiState(closedState, {
+        _tag: "OpenAddProject",
+        workspaceId: "ws-1",
+      }).openIntent,
+    ).toEqual({ kind: "add-project", workspaceId: "ws-1" });
+    expect(
+      reduceCommandPaletteUiState(closedState, {
+        _tag: "OpenNewThreadIn",
+        workspaceId: null,
+      }).openIntent,
+    ).toEqual({ kind: "new-thread-in", workspaceId: null });
   });
 
   it("preserves the mode on close and resets it on open", () => {
@@ -189,15 +209,29 @@ describe("buildThreadActionItems", () => {
             updatedAt: "2026-03-20T00:00:00.000Z",
           }),
         ],
-        projectTitleById: new Map([[PROJECT_ID, "Project"]]),
+        projectTitleByKey: new Map([
+          [
+            commandPaletteProjectKey({
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              projectId: PROJECT_ID,
+            }),
+            "Project",
+          ],
+        ]),
         sortOrder: "updated_at",
         icon: null,
         runThread: async (_thread) => undefined,
       });
 
       expect(items.map((item) => item.value)).toEqual([
-        "thread:thread-older",
-        "thread:thread-newer",
+        commandPaletteThreadValue({
+          environmentId: LOCAL_ENVIRONMENT_ID,
+          id: "thread-older",
+        }),
+        commandPaletteThreadValue({
+          environmentId: LOCAL_ENVIRONMENT_ID,
+          id: "thread-newer",
+        }),
       ]);
       expect(items[0]?.timestamp).toBe("1d ago");
       expect(items[1]?.timestamp).toBe("5d ago");
@@ -221,7 +255,12 @@ describe("buildThreadActionItems", () => {
           updatedAt: "2026-03-19T00:00:00.000Z",
         }),
       ],
-      projectTitleById: new Map([[PROJECT_ID, "Project"]]),
+      projectTitleByKey: new Map([
+        [
+          commandPaletteProjectKey({ environmentId: LOCAL_ENVIRONMENT_ID, projectId: PROJECT_ID }),
+          "Project",
+        ],
+      ]),
       sortOrder: "updated_at",
       icon: null,
       runThread: async (_thread) => undefined,
@@ -238,8 +277,14 @@ describe("buildThreadActionItems", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]?.value).toBe("threads-search");
     expect(groups[0]?.items.map((item) => item.value)).toEqual([
-      "thread:thread-title-match",
-      "thread:thread-context-match",
+      commandPaletteThreadValue({
+        environmentId: LOCAL_ENVIRONMENT_ID,
+        id: "thread-title-match",
+      }),
+      commandPaletteThreadValue({
+        environmentId: LOCAL_ENVIRONMENT_ID,
+        id: "thread-context-match",
+      }),
     ]);
   });
 
@@ -275,7 +320,12 @@ describe("buildThreadActionItems", () => {
   it("keeps message excerpts searchable without replacing thread metadata", () => {
     const [item] = buildThreadActionItems({
       threads: [makeThread({ branch: "feat/search" })],
-      projectTitleById: new Map([[PROJECT_ID, "T3 Code"]]),
+      projectTitleByKey: new Map([
+        [
+          commandPaletteProjectKey({ environmentId: LOCAL_ENVIRONMENT_ID, projectId: PROJECT_ID }),
+          "T3 Code",
+        ],
+      ]),
       sortOrder: "updated_at",
       icon: null,
       getContentMatch: () => ({
@@ -298,7 +348,12 @@ describe("buildThreadActionItems", () => {
   it("prefers renderDescription when provided", () => {
     const [item] = buildThreadActionItems({
       threads: [makeThread({ branch: "feat/search", worktreePath: "/tmp/wt" })],
-      projectTitleById: new Map([[PROJECT_ID, "T3 Code"]]),
+      projectTitleByKey: new Map([
+        [
+          commandPaletteProjectKey({ environmentId: LOCAL_ENVIRONMENT_ID, projectId: PROJECT_ID }),
+          "T3 Code",
+        ],
+      ]),
       sortOrder: "updated_at",
       icon: null,
       renderDescription: (thread, { projectTitle }) =>
@@ -325,13 +380,126 @@ describe("buildThreadActionItems", () => {
           updatedAt: "2026-03-20T00:00:00.000Z",
         }),
       ],
-      projectTitleById: new Map([[PROJECT_ID, "Project"]]),
+      projectTitleByKey: new Map([
+        [
+          commandPaletteProjectKey({ environmentId: LOCAL_ENVIRONMENT_ID, projectId: PROJECT_ID }),
+          "Project",
+        ],
+      ]),
       sortOrder: "updated_at",
       icon: null,
       runThread: async (_thread) => undefined,
     });
 
-    expect(items.map((item) => item.value)).toEqual(["thread:thread-active"]);
+    expect(items.map((item) => item.value)).toEqual([
+      commandPaletteThreadValue({
+        environmentId: LOCAL_ENVIRONMENT_ID,
+        id: "thread-active",
+      }),
+    ]);
+  });
+
+  it("keeps project titles distinct when two environments share a project id", () => {
+    const remoteEnvironmentId = EnvironmentId.make("environment-remote");
+    const maps = buildProjectPresentationMaps([
+      {
+        environmentId: LOCAL_ENVIRONMENT_ID,
+        id: PROJECT_ID,
+        title: "Local app",
+        workspaceRoot: "/local/app",
+      },
+      {
+        environmentId: remoteEnvironmentId,
+        id: PROJECT_ID,
+        title: "Remote app",
+        workspaceRoot: "/remote/app",
+      },
+    ]);
+
+    const items = buildThreadActionItems({
+      threads: [
+        makeThread({
+          id: ThreadId.make("thread-local"),
+          title: "Local chat",
+          environmentId: LOCAL_ENVIRONMENT_ID,
+        }),
+        makeThread({
+          id: ThreadId.make("thread-remote"),
+          title: "Remote chat",
+          environmentId: remoteEnvironmentId,
+        }),
+      ],
+      projectTitleByKey: maps.titleByKey,
+      sortOrder: "updated_at",
+      icon: null,
+      runThread: async (_thread) => undefined,
+    });
+
+    const descriptionByTitle = new Map(items.map((item) => [item.title, item.description]));
+    expect(descriptionByTitle.get("Local chat")).toBe("Local app");
+    expect(descriptionByTitle.get("Remote chat")).toBe("Remote app");
+    expect(new Set(items.map((item) => item.value))).toEqual(
+      new Set([
+        commandPaletteThreadValue({
+          environmentId: LOCAL_ENVIRONMENT_ID,
+          id: "thread-local",
+        }),
+        commandPaletteThreadValue({
+          environmentId: remoteEnvironmentId,
+          id: "thread-remote",
+        }),
+      ]),
+    );
+  });
+
+  it("does not open a grouped copy from another environment in custom workspace search", () => {
+    const remoteEnvironmentId = EnvironmentId.make("environment-remote");
+    const localProject = {
+      environmentId: LOCAL_ENVIRONMENT_ID,
+      id: PROJECT_ID,
+    };
+    const groupedKeys = new Set([
+      `${LOCAL_ENVIRONMENT_ID}:${PROJECT_ID}`,
+      `${remoteEnvironmentId}:${PROJECT_ID}`,
+    ]);
+    const threads = [
+      makeThread({
+        id: ThreadId.make("thread-local"),
+        title: "Local copy chat",
+        environmentId: LOCAL_ENVIRONMENT_ID,
+        updatedAt: "2026-03-19T00:00:00.000Z",
+      }),
+      makeThread({
+        id: ThreadId.make("thread-remote"),
+        title: "Remote grouped copy",
+        environmentId: remoteEnvironmentId,
+        updatedAt: "2026-03-20T00:00:00.000Z",
+      }),
+    ];
+
+    const grouped = resolvePaletteProjectSearchOpen({
+      project: localProject,
+      useLogicalGrouping: true,
+      groupMemberKeys: groupedKeys,
+      threads,
+      sortOrder: "updated_at",
+    });
+    expect(grouped).toMatchObject({
+      kind: "thread",
+      thread: { id: ThreadId.make("thread-remote"), environmentId: remoteEnvironmentId },
+    });
+
+    const scoped = resolvePaletteProjectSearchOpen({
+      project: localProject,
+      useLogicalGrouping: false,
+      groupMemberKeys: groupedKeys,
+      threads,
+      sortOrder: "updated_at",
+    });
+    expect(scoped).toMatchObject({
+      kind: "thread",
+      thread: { id: ThreadId.make("thread-local"), environmentId: LOCAL_ENVIRONMENT_ID },
+    });
   });
 });
 
@@ -406,5 +574,48 @@ describe("filterPinnedBrowseEntries", () => {
       visibleEntries: windowsEntries,
       exactEntry: windowsEntries[0],
     });
+  });
+});
+
+describe("workspaceRevealForPaletteThread", () => {
+  it("signals reveal only for the currently selected custom workspace", () => {
+    expect(
+      workspaceRevealForPaletteThread({
+        selectedWorkspaceId: "ws-1",
+        threadKey: "env:thread-1",
+        projectKey: "env:project-1",
+      }),
+    ).toEqual({
+      workspaceId: "ws-1",
+      threadKey: "env:thread-1",
+      projectKey: "env:project-1",
+    });
+    expect(
+      workspaceRevealForPaletteThread({
+        selectedWorkspaceId: "ws-1",
+        threadKey: "env:thread-1",
+      })?.workspaceId,
+    ).toBe("ws-1");
+  });
+
+  it("does not signal Default, standalone web, or empty keys", () => {
+    expect(
+      workspaceRevealForPaletteThread({
+        selectedWorkspaceId: null,
+        threadKey: "env:thread-1",
+      }),
+    ).toBeNull();
+    expect(
+      workspaceRevealForPaletteThread({
+        selectedWorkspaceId: "",
+        threadKey: "env:thread-1",
+      }),
+    ).toBeNull();
+    expect(
+      workspaceRevealForPaletteThread({
+        selectedWorkspaceId: "ws-1",
+        threadKey: "",
+      }),
+    ).toBeNull();
   });
 });

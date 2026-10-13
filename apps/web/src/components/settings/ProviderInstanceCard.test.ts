@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
+  EnvironmentId,
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
@@ -60,15 +61,19 @@ describe("deriveProviderModelsForDisplay", () => {
 
     const markup = renderToStaticMarkup(
       createElement(ProviderInstanceCard, {
+        environmentId: EnvironmentId.make("test-environment"),
         instanceId,
         instance: { driver },
         driverOption: undefined,
         liveProvider,
         mode: "editor",
+        canManageOpenCodeAccounts: false,
         onUpdate: () => undefined,
+        archivedModels: [],
         hiddenModels: [],
         favoriteModels: [],
         modelOrder: [],
+        onArchivedModelsChange: () => undefined,
         onHiddenModelsChange: () => undefined,
         onFavoriteModelsChange: () => undefined,
         onModelOrderChange: () => undefined,
@@ -100,14 +105,18 @@ describe("deriveProviderModelsForDisplay", () => {
       message,
     };
     const props = {
+      environmentId: EnvironmentId.make("test-environment"),
       instanceId,
       instance: { driver },
       driverOption: undefined,
       liveProvider,
+      canManageOpenCodeAccounts: false,
       onUpdate: () => undefined,
+      archivedModels: [],
       hiddenModels: [],
       favoriteModels: [],
       modelOrder: [],
+      onArchivedModelsChange: () => undefined,
       onHiddenModelsChange: () => undefined,
       onFavoriteModelsChange: () => undefined,
       onModelOrderChange: () => undefined,

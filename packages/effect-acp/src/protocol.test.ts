@@ -218,6 +218,22 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
     }),
   );
 
+  it.effect("rejects requests and notifications after an idle connection fails", () =>
+    Effect.gen(function* () {
+      const { stdio, input } = yield* makeInMemoryStdio();
+      const termination = yield* Deferred.make<AcpError.AcpError>();
+      const transport = yield* AcpProtocol.makeAcpPatchedProtocol({
+        stdio,
+        serverRequestMethods: new Set(),
+        onTermination: (error) => Deferred.succeed(termination, error).pipe(Effect.asVoid),
+      });
+      yield* Queue.offer(input, encoder.encode("unexpected stdout\n"));
+      const error = yield* Deferred.await(termination);
+      assert.strictEqual(yield* transport.request("session/prompt", {}).pipe(Effect.flip), error);
+      assert.strictEqual(yield* transport.notify("session/cancel", {}).pipe(Effect.flip), error);
+    }),
+  );
+
   it.effect("logs decode failures without copying the cause or wire payload", () =>
     Effect.gen(function* () {
       const secret = "acp-wire-secret-sentinel";

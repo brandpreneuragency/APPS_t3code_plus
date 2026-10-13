@@ -29,6 +29,23 @@ On mobile, the model picker shows each OpenCode model's upstream provider, such 
 GitHub Copilot, or OpenCode Zen, beneath its name. Search by that provider name to narrow the list
 when starting a thread or changing an existing thread's model.
 
+## Organize provider models
+
+On web and desktop, open **Settings → Providers**, select a provider, and open **Models**.
+Upstream provider groups, such as Google and Nvidia, start collapsed. Select the chevron beside
+a group name to expand it. Your choices are remembered on this device.
+
+Select a model's **Archive** button to move it out of **Models** and the model picker. Every
+provider has an **Archived** tab after **Models**, where **Restore** brings a model back.
+Custom models can be archived too. Archiving preserves favorites, saved order, and existing chats.
+
+**Hide from picker** remains separate: a hidden model stays on **Models**, crossed out.
+Restoring an archived model keeps its previous Hide setting. You can still restore a model
+from **Archived** if the provider no longer reports it; availability depends on the provider.
+
+These preferences are saved on this device per provider instance. They do not sync to another
+device or the mobile app.
+
 ## Prompt stash
 
 Use the default shortcut, `Cmd+S` on macOS or `Ctrl+S` on Windows and Linux, to stash the current

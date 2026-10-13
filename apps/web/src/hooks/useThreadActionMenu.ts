@@ -63,8 +63,10 @@ export function useThreadActionMenu(input: {
   /** PR feeding auto-settle classification, as resolved by the caller. */
   readonly changeRequest: ChangeRequestSettleSource | null;
   readonly onStartRename: () => void;
+  /** Recheck an initiating surface after a native menu or confirmation closes. */
+  readonly isTargetValid?: () => boolean;
 }) {
-  const { threadRef, projectCwd, changeRequest, onStartRename } = input;
+  const { threadRef, projectCwd, changeRequest, onStartRename, isTargetValid } = input;
   const {
     settleThread,
     unsettleThread,
@@ -107,7 +109,7 @@ export function useThreadActionMenu(input: {
 
   const openMenu = useCallback(
     (position: { x: number; y: number }) => {
-      if (threadRef === null) return;
+      if (threadRef === null || isTargetValid?.() === false) return;
       void (async () => {
         const api = readLocalApi();
         if (!api) return;
@@ -147,6 +149,7 @@ export function useThreadActionMenu(input: {
         });
         const clicked = await settlePromise(() => api.contextMenu.show(items, position));
         if (clicked._tag === "Failure" || clicked.value === null) return;
+        if (isTargetValid?.() === false) return;
         const action: ThreadActionMenuId = clicked.value;
         if (action.startsWith("snooze:")) {
           const preset = snoozePresets.find((candidate) => `snooze:${candidate.id}` === action);
@@ -216,7 +219,9 @@ export function useThreadActionMenu(input: {
             await reportFailure("Failed to pin thread", () => pinThread(threadRef));
             return;
           case "unpin": {
-            await reportFailure("Failed to unpin thread", () => confirmAndUnpinThread(threadRef));
+            await reportFailure("Failed to unpin thread", () =>
+              confirmAndUnpinThread(threadRef, isTargetValid),
+            );
             return;
           }
           case "rename":
@@ -264,6 +269,7 @@ export function useThreadActionMenu(input: {
               );
               if (confirmed._tag === "Failure" || !confirmed.value) return;
             }
+            if (isTargetValid?.() === false) return;
             let didArchive = false;
             const result = await archiveThread(threadRef, {
               onArchived: () => {
@@ -291,6 +297,7 @@ export function useThreadActionMenu(input: {
               );
               if (confirmed._tag === "Failure" || !confirmed.value) return;
             }
+            if (isTargetValid?.() === false) return;
             const deleted = await deleteThread(threadRef);
             if (
               deleted._tag === "Failure" &&
@@ -322,6 +329,7 @@ export function useThreadActionMenu(input: {
       copyThreadIdToClipboard,
       deleteThread,
       handleNewThread,
+      isTargetValid,
       markThreadUnread,
       onStartRename,
       pinThread,

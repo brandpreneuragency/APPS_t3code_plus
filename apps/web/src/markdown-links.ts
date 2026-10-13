@@ -1,6 +1,7 @@
 import { formatWorkspaceRelativePath } from "./filePathDisplay";
 import {
   isTerminalLinkActivation,
+  isWindowsPathStyle,
   resolvePathLinkTarget,
   splitPathAndPosition,
 } from "./terminal-links";
@@ -167,13 +168,15 @@ function isLikelyPathCandidate(path: string): boolean {
   return RELATIVE_FILE_PATH_PATTERN.test(path) || RELATIVE_FILE_NAME_PATTERN.test(path);
 }
 
-function isRelativePath(path: string): boolean {
-  return (
-    RELATIVE_PATH_PREFIX_PATTERN.test(path) ||
-    (!path.startsWith("/") &&
-      !WINDOWS_DRIVE_PATH_PATTERN.test(path) &&
-      !WINDOWS_UNC_PATH_PATTERN.test(path))
-  );
+/**
+ * A `/` root is relative to a Windows workspace root and absolute to a POSIX
+ * one. Agents write workspace-relative targets both ways, and Windows cannot
+ * resolve the root-relative form at all, so the workspace root decides.
+ */
+function isRelativePath(path: string, cwd?: string): boolean {
+  if (RELATIVE_PATH_PREFIX_PATTERN.test(path)) return true;
+  if (path.startsWith("/")) return cwd !== undefined && isWindowsPathStyle(cwd);
+  return !WINDOWS_DRIVE_PATH_PATTERN.test(path) && !WINDOWS_UNC_PATH_PATTERN.test(path);
 }
 
 function hasExternalScheme(path: string): boolean {
@@ -213,7 +216,7 @@ export function resolveMarkdownFileLinkTarget(
   if (!isLikelyPathCandidate(decodedPath)) return null;
 
   const pathWithPosition = appendLineColumnFromHash(decodedPath, decodedHash);
-  if (!isRelativePath(pathWithPosition)) {
+  if (!isRelativePath(pathWithPosition, cwd)) {
     return pathWithPosition;
   }
 

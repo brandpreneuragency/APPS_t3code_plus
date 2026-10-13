@@ -244,6 +244,87 @@ it.effect("reveals a file in File Explorer through PowerShell on Windows", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
+// Chat and terminal links carry `path:line:col` targets for real editors.
+// The file manager has no position concept: passing the suffix names a
+// nonexistent path, so Explorer falls back to Documents instead of opening
+// the file's folder.
+it.effect("opens a file-manager target without its line position on Windows", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const binDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-editors-" });
+    yield* fileSystem.writeFileString(path.join(binDir, "explorer.CMD"), "@echo off\r\n");
+
+    let spawned: ChildProcess.StandardCommand | undefined;
+    yield* Effect.gen(function* () {
+      const launcher = yield* ExternalLauncher.ExternalLauncher;
+      yield* launcher.launchEditor({
+        editor: "file-manager",
+        cwd: "C:\\workspace\\src\\index.ts:12:4",
+      });
+    }).pipe(
+      Effect.provide(
+        testLayer({
+          platform: "win32",
+          env: { PATH: binDir, PATHEXT: ".COM;.EXE;.BAT;.CMD" },
+          onSpawn: (command) => {
+            spawned = command;
+          },
+        }),
+      ),
+    );
+
+    assert.ok(spawned);
+    assert.equal(spawned.command, "explorer");
+    assert.deepEqual(spawned.args, ["C:\\workspace\\src\\index.ts"]);
+    assert.equal(spawned.options.shell, false);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+// Same suffix contract for reveal: `/select` must name the real file, not
+// `file.ts:12`, which Explorer cannot select and drops silently.
+it.effect("reveals a file-manager target without its line position on Windows", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const binDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-editors-" });
+    yield* fileSystem.writeFileString(path.join(binDir, "explorer.CMD"), "@echo off\r\n");
+    const systemRoot = path.join(binDir, "system-root");
+    const powerShellPath = `${systemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
+    yield* fileSystem.makeDirectory(path.dirname(powerShellPath), { recursive: true });
+    yield* fileSystem.writeFileString(powerShellPath, "");
+
+    let spawned: ChildProcess.StandardCommand | undefined;
+    yield* Effect.gen(function* () {
+      const launcher = yield* ExternalLauncher.ExternalLauncher;
+      yield* launcher.launchEditor({
+        editor: "file-manager",
+        cwd: "C:\\workspace\\src\\index.ts:12",
+        reveal: true,
+      });
+    }).pipe(
+      Effect.provide(
+        testLayer({
+          platform: "win32",
+          env: { PATH: binDir, PATHEXT: ".COM;.EXE;.BAT;.CMD", SYSTEMROOT: systemRoot },
+          onSpawn: (command) => {
+            spawned = command;
+          },
+        }),
+      ),
+    );
+
+    assert.ok(spawned);
+    assert.equal(spawned.command, powerShellPath);
+    const encodedCommand = spawned.args[spawned.args.length - 1] ?? "";
+    const decodedCommand = Buffer.from(encodedCommand, "base64").toString("utf16le");
+    assert.equal(
+      decodedCommand,
+      "$ProgressPreference = 'SilentlyContinue'; Start-Process 'explorer.exe' -ArgumentList ('/select,\"' + 'C:\\workspace\\src\\index.ts' + '\"')",
+    );
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
 // Real-chain smoke check for the Explorer selection contract: runs the exact
 // PowerShell source the reveal launch encodes, against a stub that records
 // the raw argument tail it receives, and asserts a spaced path arrives as the
@@ -327,6 +408,68 @@ it.effect("does not advertise reveal on Windows when PowerShell is missing", () 
     // reveal capability, which launches PowerShell, must stay hidden.
     assert.equal(result.editors.includes("file-manager"), true);
     assert.isUndefined(result.kind);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect("advertises the Windows file manager through its absolute path when PATH hides it", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const binDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-editors-" });
+    const emptyDir = path.join(binDir, "empty-path");
+    yield* fileSystem.makeDirectory(emptyDir, { recursive: true });
+    // Explorer's absolute path uses Windows separators, which on the posix
+    // test filesystem is one file name (same pattern as the PowerShell test).
+    const windowsRoot = path.join(binDir, "windows-root");
+    const explorerPath = `${windowsRoot}\\explorer.exe`;
+    yield* fileSystem.makeDirectory(windowsRoot, { recursive: true });
+    yield* fileSystem.writeFileString(explorerPath, "");
+
+    const editors = yield* Effect.gen(function* () {
+      const launcher = yield* ExternalLauncher.ExternalLauncher;
+      return yield* launcher.resolveAvailableEditors();
+    }).pipe(
+      Effect.provide(
+        testLayer({
+          platform: "win32",
+          env: {
+            PATH: emptyDir,
+            PATHEXT: ".COM;.EXE;.BAT;.CMD",
+            SYSTEMROOT: windowsRoot,
+          },
+        }),
+      ),
+    );
+
+    assert.equal(editors.includes("file-manager"), true);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect("does not advertise the Windows file manager when Explorer is fully missing", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const binDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-editors-" });
+    const emptyDir = path.join(binDir, "empty-path");
+    yield* fileSystem.makeDirectory(emptyDir, { recursive: true });
+
+    const editors = yield* Effect.gen(function* () {
+      const launcher = yield* ExternalLauncher.ExternalLauncher;
+      return yield* launcher.resolveAvailableEditors();
+    }).pipe(
+      Effect.provide(
+        testLayer({
+          platform: "win32",
+          env: {
+            PATH: emptyDir,
+            PATHEXT: ".COM;.EXE;.BAT;.CMD",
+            SYSTEMROOT: path.join(binDir, "missing-windows-root"),
+          },
+        }),
+      ),
+    );
+
+    assert.equal(editors.includes("file-manager"), false);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 

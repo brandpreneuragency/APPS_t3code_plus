@@ -34,6 +34,8 @@ import {
   type OrchestrationShellStreamEvent,
   type OrchestrationShellStreamItem,
   type OrchestrationThreadStreamItem,
+  OpenCodeAccountError,
+  type ProviderInstanceId,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
   OrchestrationSearchThreadsError,
@@ -93,6 +95,7 @@ import {
   observeRpcStreamEffect as instrumentRpcStreamEffect,
 } from "./observability/RpcInstrumentation.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
+import * as ProviderInstanceRegistry from "./provider/Services/ProviderInstanceRegistry.ts";
 import * as ProviderService from "./provider/Services/ProviderService.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
@@ -505,6 +508,7 @@ const makeWsRpcLayer = (
       const previewManager = yield* PreviewManager.PreviewManager;
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
+      const providerInstanceRegistry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
       const providerService = yield* ProviderService.ProviderService;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
@@ -554,6 +558,18 @@ const makeWsRpcLayer = (
       const resourceTelemetry = yield* ResourceTelemetry.ResourceTelemetry;
       const usage = yield* UsageService.UsageService;
       const modelCatalogue = yield* ModelCatalogue.ModelCatalogueService;
+      const resolveOpenCodeAccountManagement = (instanceId: ProviderInstanceId) =>
+        Effect.gen(function* () {
+          const instance = yield* providerInstanceRegistry.getInstance(instanceId);
+          if (!instance?.openCodeAccounts) {
+            return yield* new OpenCodeAccountError({
+              instanceId,
+              reason: "unsupported",
+              message: "This provider instance does not support OpenCode account switching.",
+            });
+          }
+          return instance.openCodeAccounts;
+        });
       const relayClient = yield* RelayClient.RelayClient;
       const authorizationError = (requiredScope: AuthEnvironmentScope) =>
         new EnvironmentAuthorizationError({
@@ -1790,6 +1806,34 @@ const makeWsRpcLayer = (
             input.clear
               ? modelCatalogue.clearCredential()
               : modelCatalogue.setCredential(input.credentials),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverListOpenCodeAccounts]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverListOpenCodeAccounts,
+            Effect.flatMap(resolveOpenCodeAccountManagement(input.instanceId), (accounts) =>
+              accounts.list,
+            ),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverActivateOpenCodeAccount]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverActivateOpenCodeAccount,
+            Effect.flatMap(resolveOpenCodeAccountManagement(input.instanceId), (accounts) =>
+              accounts.activate(
+                {
+                  credentialId: input.credentialId,
+                  ...(input.expectedActiveCredentialId !== undefined
+                    ? { expectedActiveCredentialId: input.expectedActiveCredentialId }
+                    : {}),
+                },
+                () =>
+                  providerRegistry.refreshInstance(input.instanceId).pipe(
+                    Effect.as("refreshed" as const),
+                    Effect.orElseSucceed(() => "failed" as const),
+                  ),
+              ),
+            ),
             { "rpc.aggregate": "server" },
           ),
         [WS_METHODS.serverRetryResourceTelemetry]: (_input) =>

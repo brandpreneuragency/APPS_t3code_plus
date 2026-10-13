@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   groupModelsBySubProvider,
   nextHiddenModelsForProviderVisibilityToggle,
+  partitionProviderModels,
 } from "./ProviderModelsSection.logic";
 
 function model(
@@ -73,6 +74,34 @@ describe("groupModelsBySubProvider", () => {
       { label: "OpenCode Go", slugs: ["opencode-go/deepseek", "opencode-go/kimi"] },
       { label: "xAI", slugs: ["xai/grok"] },
       { label: "Custom", slugs: ["local-custom"] },
+    ]);
+  });
+});
+
+describe("partitionProviderModels", () => {
+  it("moves only archived live models out of Models", () => {
+    const result = partitionProviderModels(
+      [
+        { ...model("visible-hidden"), name: "Visible hidden", capabilities: null },
+        { ...model("archived"), name: "Archived", capabilities: null },
+      ],
+      ["archived"],
+    );
+
+    expect(result.models.map((item) => item.slug)).toEqual(["visible-hidden"]);
+    expect(result.archivedModels.map((item) => item.slug)).toEqual(["archived"]);
+  });
+
+  it("retains archived slugs missing from a provider catalogue so they can be restored", () => {
+    const result = partitionProviderModels(
+      [{ ...model("live"), name: "Live", capabilities: null }],
+      ["missing", "live"],
+    );
+
+    expect(result.models).toEqual([]);
+    expect(result.archivedModels.map((item) => ({ slug: item.slug, name: item.name }))).toEqual([
+      { slug: "live", name: "Live" },
+      { slug: "missing", name: "missing" },
     ]);
   });
 });

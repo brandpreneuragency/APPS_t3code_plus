@@ -15,6 +15,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   RuntimeRequestId,
+  RuntimeItemId,
   type ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -108,6 +109,7 @@ interface HermesSessionContext {
   /** Number of sendTurn prompts currently in flight or being prepared. */
   promptsInFlight: number;
   currentModelId: string | undefined;
+  reasoningText: string;
   stopped: boolean;
 }
 
@@ -348,6 +350,22 @@ export function makeHermesAdapter(
       return Effect.succeed(ctx);
     };
 
+    const flushReasoning = (ctx: HermesSessionContext) =>
+      Effect.gen(function* () {
+        const text = ctx.reasoningText;
+        ctx.reasoningText = "";
+        if (!text.trim()) return;
+        yield* offerRuntimeEvent({
+          type: "item.completed",
+          ...(yield* makeEventStamp()),
+          provider: PROVIDER,
+          threadId: ctx.threadId,
+          turnId: ctx.activeTurnId,
+          itemId: RuntimeItemId.make(yield* randomUUIDv4),
+          payload: { itemType: "reasoning", title: "Thinking", detail: text, status: "completed" },
+        });
+      });
+
     const stopSessionInternal = (ctx: HermesSessionContext) =>
       Effect.gen(function* () {
         if (ctx.stopped) return;
@@ -549,8 +567,9 @@ export function makeHermesAdapter(
             runtime: acp,
             currentModelId: currentHermesModelIdFromSessionSetup(started.sessionSetupResult),
             requestedModelId: requestedStartModelId,
-            mapError: (cause) =>
-              mapAcpToAdapterError(PROVIDER, input.threadId, "session/set_model", cause),
+            selections: hermesModelSelection?.options,
+            mapError: (cause, method) =>
+              mapAcpToAdapterError(PROVIDER, input.threadId, method, cause),
           });
 
           const now = yield* nowIso;
@@ -583,13 +602,25 @@ export function makeHermesAdapter(
             activeTurnId: undefined,
             promptsInFlight: 0,
             currentModelId: boundModelId,
+            reasoningText: "",
             stopped: false,
           };
 
           const nf = yield* Stream.runDrain(
             Stream.mapEffect(acp.getEvents(), (event) =>
               Effect.gen(function* () {
+                if (event._tag !== "ReasoningDelta") {
+                  yield* flushReasoning(ctx);
+                }
                 switch (event._tag) {
+                  case "ReasoningDelta":
+                    yield* logNative(ctx.threadId, "session/update", event.rawPayload);
+                    // Bound each persisted reasoning block rather than accumulating a whole turn.
+                    ctx.reasoningText += event.text;
+                    if (ctx.reasoningText.length >= 4_000) {
+                      yield* flushReasoning(ctx);
+                    }
+                    return;
                   case "EventStreamBarrier":
                     yield* Deferred.succeed(event.acknowledge, undefined);
                     return;
@@ -708,8 +739,9 @@ export function makeHermesAdapter(
             runtime: ctx.acp,
             currentModelId: ctx.currentModelId,
             requestedModelId: requestedTurnModelId,
-            mapError: (cause) =>
-              mapAcpToAdapterError(PROVIDER, input.threadId, "session/set_model", cause),
+            selections: turnModelSelection?.options,
+            mapError: (cause, method) =>
+              mapAcpToAdapterError(PROVIDER, input.threadId, method, cause),
           });
           ctx.currentModelId = currentModelId;
           ctx.activeTurnId = turnId;
@@ -789,6 +821,7 @@ export function makeHermesAdapter(
               Effect.mapError((error) =>
                 mapAcpToAdapterError(PROVIDER, input.threadId, "session/prompt", error),
               ),
+              Effect.ensuring(ctx.acp.drainEvents),
             );
 
           const turnRecord = ctx.turns.find((turn) => turn.id === turnId);

@@ -53,7 +53,7 @@ export interface PendingUserInputCardProps {
   /** Fires on custom-answer focus/blur; hosts use it to vet stale keyboard state. */
   readonly onInputFocusChange?: (focused: boolean) => void;
   readonly drafts: Record<string, PendingUserInputDraftAnswer>;
-  readonly answers: Record<string, string | ReadonlyArray<string>> | null;
+  readonly answers: Record<string, unknown> | null;
   readonly respondingUserInputId: ApprovalRequestId | null;
   readonly onSelectOption: (
     requestId: ApprovalRequestId,

@@ -310,6 +310,14 @@ describe("AcpRuntimeModel", () => {
       },
     ]);
 
+    const thought = {
+      sessionId: "session-1",
+      update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Inspect the code." } },
+    } satisfies EffectAcpSchema.SessionNotification;
+    expect(parseSessionUpdateEvent(thought).events).toEqual([
+      { _tag: "ReasoningDelta", text: "Inspect the code.", rawPayload: thought },
+    ]);
+
     const contentResult = parseSessionUpdateEvent({
       sessionId: "session-1",
       update: {

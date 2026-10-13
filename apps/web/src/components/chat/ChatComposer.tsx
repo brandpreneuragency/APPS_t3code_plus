@@ -73,6 +73,7 @@ import {
 } from "../../promptStashStore";
 import { ComposerStashBadge } from "./ComposerStashBadge";
 import { ComposerStashMenu } from "./ComposerStashMenu";
+import { PromptLibraryMenu } from "./PromptLibraryMenu";
 import {
   ComposerTasksBadge,
   ComposerTasksDrawer,
@@ -4186,6 +4187,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
+                  {pendingUserInputs.length === 0 && (
+                    <PromptLibraryMenu
+                      readSnapshot={readComposerSnapshot}
+                      onInsert={(text, snapshot) => {
+                        if (promptRef.current !== snapshot.value) return false;
+                        return applyPromptReplacement(
+                          snapshot.expandedCursor,
+                          snapshot.expandedCursor,
+                          text,
+                        );
+                      }}
+                    />
+                  )}
                   {fileStagingLimit !== null && pendingUserInputs.length === 0 ? (
                     <>
                       <input

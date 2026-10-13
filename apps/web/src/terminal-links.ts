@@ -102,18 +102,26 @@ function isWindowsAbsolutePath(value: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
 }
 
-function isAbsolutePath(value: string): boolean {
-  return value.startsWith("/") || isWindowsAbsolutePath(value);
+/**
+ * A `/` root is only absolute on a POSIX workspace. Agents habitually write
+ * workspace-relative targets as `/src/app.ts`; against a Windows workspace
+ * root that names nothing, so Explorer falls back to its default folder and
+ * reveal selects nothing. The workspace root decides which reading applies.
+ */
+function isAbsolutePath(value: string, cwd?: string): boolean {
+  if (isWindowsAbsolutePath(value)) return true;
+  if (!value.startsWith("/")) return false;
+  return cwd === undefined || !isWindowsPathStyle(cwd);
 }
 
-function isWindowsPathStyle(value: string): boolean {
+export function isWindowsPathStyle(value: string): boolean {
   return isWindowsAbsolutePath(value) || /[A-Za-z]:\\/.test(value);
 }
 
 function joinPath(base: string, next: string, separator: "/" | "\\"): string {
   const cleanBase = base.replace(/[\\/]+$/, "");
   if (separator === "\\") {
-    return `${cleanBase}\\${next.replaceAll("/", "\\")}`;
+    return `${cleanBase}\\${next.replaceAll("/", "\\").replace(/^\\+/, "")}`;
   }
   return `${cleanBase}/${next.replace(/^\/+/, "")}`;
 }
@@ -280,7 +288,7 @@ export function resolvePathLinkTarget(rawPath: string, cwd: string): string {
       const separator: "/" | "\\" = isWindowsPathStyle(home) ? "\\" : "/";
       resolvedPath = joinPath(home, path.slice(2), separator);
     }
-  } else if (!isAbsolutePath(path)) {
+  } else if (!isAbsolutePath(path, cwd)) {
     const separator: "/" | "\\" = isWindowsPathStyle(cwd) ? "\\" : "/";
     resolvedPath = joinPath(cwd, path, separator);
   }

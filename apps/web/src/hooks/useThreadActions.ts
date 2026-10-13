@@ -140,13 +140,15 @@ export async function requestThreadUnpinConfirmation(input: {
   enabled: boolean;
   title: string;
   confirm: ((message: string) => Promise<boolean>) | null;
+  isTargetValid?: (() => boolean) | undefined;
 }) {
   const { confirm } = input;
+  if (input.isTargetValid?.() === false) return AsyncResult.success(false);
   if (!input.enabled || confirm === null) {
     return AsyncResult.success(true);
   }
 
-  return settlePromise(() =>
+  const result = await settlePromise(() =>
     confirm(
       [
         `Unpin thread "${input.title}"?`,
@@ -154,6 +156,9 @@ export async function requestThreadUnpinConfirmation(input: {
       ].join("\n"),
     ),
   );
+  return result._tag === "Success" && input.isTargetValid?.() === false
+    ? AsyncResult.success(false)
+    : result;
 }
 
 export function useThreadActions() {
@@ -612,18 +617,19 @@ export function useThreadActions() {
   );
 
   const confirmAndUnpinThread = useCallback(
-    async (target: ScopedThreadRef) => {
+    async (target: ScopedThreadRef, isTargetValid?: () => boolean) => {
       const localApi = readLocalApi();
       const resolved = resolveThreadTarget(target);
       const confirmationResult = await requestThreadUnpinConfirmation({
         enabled: confirmThreadUnpin,
         title: resolved?.thread.title ?? "this thread",
         confirm: localApi ? (message) => localApi.dialogs.confirm(message) : null,
+        isTargetValid,
       });
       if (confirmationResult._tag === "Failure") {
         return confirmationResult;
       }
-      if (!confirmationResult.value) {
+      if (!confirmationResult.value || isTargetValid?.() === false) {
         return AsyncResult.success(undefined);
       }
       return unpinThread(target);

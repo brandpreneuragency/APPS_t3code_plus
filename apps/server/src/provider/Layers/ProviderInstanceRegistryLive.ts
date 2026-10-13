@@ -62,6 +62,7 @@ import {
   type ProviderInstanceRegistryMutatorShape,
 } from "../Services/ProviderInstanceRegistryMutator.ts";
 import type { AnyProviderDriver, ProviderInstance } from "../ProviderDriver.ts";
+import * as OpenCodeWorkGuard from "../OpenCodeWorkGuard.ts";
 
 /**
  * Live registry entry: the materialized `ProviderInstance` + the fresh
@@ -121,6 +122,7 @@ const buildEntry = <R>(input: {
   readonly instanceId: ProviderInstanceId;
   readonly rawInstanceId: string;
   readonly entry: ProviderInstanceConfig;
+  readonly openCodeWorkGuard: OpenCodeWorkGuard.OpenCodeWorkGuardShape;
 }): Effect.Effect<
   | { readonly kind: "live"; readonly live: LiveEntry }
   | { readonly kind: "unavailable"; readonly snapshot: ServerProvider },
@@ -128,7 +130,7 @@ const buildEntry = <R>(input: {
   R
 > =>
   Effect.gen(function* () {
-    const { driversById, parentScope, instanceId, rawInstanceId, entry } = input;
+    const { driversById, parentScope, instanceId, rawInstanceId, entry, openCodeWorkGuard } = input;
     const driver = driversById.get(entry.driver);
     if (!driver) {
       return {
@@ -182,6 +184,7 @@ const buildEntry = <R>(input: {
         environment: entry.environment ?? [],
         enabled: resolveEntryEnabled(entry, typedConfig),
         config: typedConfig,
+        openCodeWorkGuard,
       })
       .pipe(Effect.provideService(Scope.Scope, childScope), Effect.result);
     if (createResult._tag === "Failure") {
@@ -221,8 +224,9 @@ const makeReconcile = <R>(input: {
   readonly state: RegistryState;
   readonly driversById: ReadonlyMap<ProviderDriverKind, AnyProviderDriver<R>>;
   readonly parentScope: Scope.Scope;
+  readonly openCodeWorkGuard: OpenCodeWorkGuard.OpenCodeWorkGuardShape;
 }): ((configMap: ProviderInstanceConfigMap) => Effect.Effect<void, never, R>) => {
-  const { state, driversById, parentScope } = input;
+  const { state, driversById, parentScope, openCodeWorkGuard } = input;
   return (configMap: ProviderInstanceConfigMap) =>
     Effect.gen(function* () {
       const previousEntries = yield* Ref.get(state.entries);
@@ -279,6 +283,7 @@ const makeReconcile = <R>(input: {
           instanceId,
           rawInstanceId,
           entry,
+          openCodeWorkGuard,
         });
         if (result.kind === "live") {
           builtEntries.set(instanceId, result.live);
@@ -348,6 +353,7 @@ export const makeProviderInstanceRegistry = <R>(input: {
   R | Scope.Scope
 > =>
   Effect.gen(function* () {
+    const openCodeWorkGuard = yield* OpenCodeWorkGuard.make;
     const driversById = new Map<ProviderDriverKind, AnyProviderDriver<R>>(
       input.drivers.map((driver) => [driver.driverKind, driver]),
     );
@@ -370,7 +376,12 @@ export const makeProviderInstanceRegistry = <R>(input: {
     yield* Effect.addFinalizer(() => PubSub.shutdown(changes));
 
     const state: RegistryState = { entries, unavailable, changes };
-    const reconcileWithR = makeReconcile({ state, driversById, parentScope });
+    const reconcileWithR = makeReconcile({
+      state,
+      driversById,
+      parentScope,
+      openCodeWorkGuard,
+    });
     const reconcile: ProviderInstanceRegistryMutatorShape["reconcile"] = (configMap) =>
       reconcileWithR(configMap).pipe(Effect.provideContext(driverContext));
 

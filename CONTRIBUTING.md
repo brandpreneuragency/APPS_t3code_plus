@@ -1,5 +1,10 @@
 # Contributing
 
+This is the upstream pingdotgg maintainer policy, retained for upstream-bound
+contributions. It does not require Burak's local fork work to open an external
+discussion or PR. External actions still need the current task's authorization;
+see [AGENTS.md](AGENTS.md).
+
 ## Read This First
 
 We are not actively accepting contributions right now.

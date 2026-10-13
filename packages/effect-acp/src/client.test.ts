@@ -82,6 +82,23 @@ it.layer(NodeServices.layer)("effect-acp client", (it) => {
       return yield* spawner.spawn(command);
     });
 
+  it.effect("rejects later typed prompts after a protocol parse failure", () =>
+    Effect.gen(function* () {
+      const { stdio, input, output } = yield* makeInMemoryStdio();
+      const acp = yield* AcpClient.make(stdio);
+      const first = yield* acp.agent.prompt({
+        sessionId: "session-1", prompt: [{ type: "text", text: "first" }],
+      }).pipe(Effect.flip, Effect.forkScoped);
+      yield* Queue.take(output);
+      yield* Queue.offer(input, new TextEncoder().encode("unexpected stdout\n"));
+      assert.instanceOf(yield* Fiber.join(first), AcpError.AcpTransportError);
+      const error = yield* acp.agent.prompt({
+        sessionId: "session-1", prompt: [{ type: "text", text: "next" }],
+      }).pipe(Effect.flip);
+      assert.instanceOf(error, AcpError.AcpTransportError);
+    }),
+  );
+
   it.effect("initializes, prompts, receives updates, and handles permission requests", () =>
     Effect.gen(function* () {
       const updates = yield* Ref.make<Array<unknown>>([]);

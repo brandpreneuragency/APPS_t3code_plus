@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
-import { ClientSettingsSchema, type ClientSettings } from "@t3tools/contracts";
+import { ClientSettingsSchema, ProviderInstanceId, type ClientSettings } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -38,7 +38,13 @@ const clientSettings: ClientSettings = {
   glassOpacity: 80,
   planModeEnabled: false,
   showSkillsInSlashMenu: false,
-  providerModelPreferences: {},
+  providerModelPreferences: {
+    [ProviderInstanceId.make("opencode")]: {
+      archivedModels: ["google/gemini", "custom-model"],
+      hiddenModels: ["google/gemini"],
+      modelOrder: ["custom-model", "google/gemini"],
+    },
+  },
   sidebarAutoSettleAfterDays: 3,
   sidebarAutoSettleOnMerge: true,
   sidebarProjectGroupingMode: "repository_path",

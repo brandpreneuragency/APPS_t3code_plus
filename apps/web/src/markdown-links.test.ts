@@ -253,6 +253,26 @@ describe("resolveMarkdownFileLinkTarget", () => {
     });
   });
 
+  it("resolves a root-relative link against a Windows workspace root", () => {
+    expect(
+      resolveMarkdownFileLinkMeta(
+        "/tabs-icon.png",
+        "C:\\Users\\burak\\MOTHER\\PROJECTS\\TABS-local",
+      ),
+    ).toMatchObject({
+      targetPath: "C:\\Users\\burak\\MOTHER\\PROJECTS\\TABS-local\\tabs-icon.png",
+      basename: "tabs-icon.png",
+      workspaceRelativePath: "tabs-icon.png",
+    });
+  });
+
+  it("keeps a root-relative link absolute against a POSIX workspace root", () => {
+    expect(resolveMarkdownFileLinkMeta("/tmp/tabs-icon.png", "/repo/project")).toMatchObject({
+      targetPath: "/tmp/tabs-icon.png",
+      workspaceRelativePath: null,
+    });
+  });
+
   it("normalizes slash-prefixed windows drive paths before resolving", () => {
     expect(
       resolveMarkdownFileLinkTarget(

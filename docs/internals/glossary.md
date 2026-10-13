@@ -25,6 +25,15 @@ The top-level workspace record in the app. In [the orchestration contracts][1], 
 
 The root filesystem path for a project. In [the orchestration model][1], it is the base directory for branches and optional worktrees. See [workspace-layout.md][2].
 
+#### Sidebar workspace
+
+A desktop-local named collection of physical projects, identified by their environment and project
+IDs. A project can belong to one custom sidebar workspace and is always still available in Default.
+Changing the selected sidebar workspace changes sidebar scope, not the open thread's workspace
+root, session, composer, or tool target. This organization is separate from the project's
+filesystem workspace root and is stored locally by the Electron renderer. See [desktop sidebar
+workspaces](./sidebar-workspaces.md).
+
 #### Worktree
 
 A Git worktree used as an isolated workspace for a thread. If a thread has a `worktreePath` in [the contracts][1], it runs there instead of in the main working tree. Git operations live behind the VCS driver contract in `apps/server/src/vcs/VcsDriver.ts`, implemented by [GitVcsDriverCore.ts][3].

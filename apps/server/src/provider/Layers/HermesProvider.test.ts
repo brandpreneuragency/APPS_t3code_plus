@@ -15,13 +15,18 @@ import {
   checkHermesProviderStatus,
   encodeHermesModelChoice,
   getHermesFallbackModels,
-  resolveHermesPythonCandidate,
   HERMES_SETUP_MESSAGE,
   mergeHermesDiscoveredModels,
   parseHermesInventoryPayload,
   parseHermesSubProvider,
   resolveHermesAuthStatus,
 } from "./HermesProvider.ts";
+import { resolveHermesPythonCandidate } from "../hermesExecutable.ts";
+import { hermesModelCapabilities } from "../acp/HermesAcpSupport.ts";
+import {
+  buildProviderOptionSelectionsFromDescriptors,
+  getProviderOptionDescriptors,
+} from "@t3tools/shared/model";
 
 const decodeHermesSettings = Schema.decodeSync(HermesSettings);
 
@@ -219,6 +224,34 @@ describe("mergeHermesDiscoveredModels", () => {
 });
 
 describe("buildHermesDiscoveredModelsFromSessionModelState", () => {
+  it("makes advertised reasoning selectable on every discovered model", () => {
+    const capabilities = hermesModelCapabilities([
+      {
+        id: "t3:reasoning-effort",
+        name: "Reasoning effort",
+        type: "select",
+        currentValue: "default",
+        options: [
+          { value: "default", name: "Default" },
+          { value: "high", name: "High" },
+        ],
+      },
+    ]);
+    const models = buildHermesDiscoveredModelsFromSessionModelState(
+      HERMES_SESSION_MODEL_STATE,
+      capabilities,
+    );
+    for (const model of models) {
+      const descriptors = getProviderOptionDescriptors({
+        caps: model.capabilities!,
+        selections: [{ id: "reasoningEffort", value: "high" }],
+      });
+      expect(buildProviderOptionSelectionsFromDescriptors(descriptors)).toEqual([
+        { id: "reasoningEffort", value: "high" },
+      ]);
+    }
+  });
+
   it("maps a real-shaped SessionModelState without fabricating capabilities", () => {
     const models = buildHermesDiscoveredModelsFromSessionModelState(HERMES_SESSION_MODEL_STATE);
 

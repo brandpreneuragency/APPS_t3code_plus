@@ -32,6 +32,8 @@ import type * as Scope from "effect/Scope";
 
 import type * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import type { ProviderAdapterError, ProviderDriverError } from "./Errors.ts";
+import type { OpenCodeAccountManagement } from "./OpenCodeAccountManagement.ts";
+import type { OpenCodeWorkGuardShape } from "./OpenCodeWorkGuard.ts";
 import type { ProviderAdapterShape } from "./Services/ProviderAdapter.ts";
 import type { ServerProviderShape } from "./Services/ServerProvider.ts";
 
@@ -71,6 +73,8 @@ export interface ProviderInstance {
   readonly snapshot: ServerProviderShape;
   readonly adapter: ProviderAdapterShape<ProviderAdapterError>;
   readonly textGeneration: TextGeneration.TextGeneration["Service"];
+  /** Present only on OpenCode instances; V1 reports account switching as unsupported. */
+  readonly openCodeAccounts?: OpenCodeAccountManagement;
 }
 
 export interface ProviderContinuationIdentity {
@@ -101,6 +105,8 @@ export interface ProviderDriverCreateInput<Config> {
   readonly environment: ProviderInstanceEnvironment;
   readonly enabled: boolean;
   readonly config: Config;
+  /** Shared by OpenCode instances materialized in the same environment registry. */
+  readonly openCodeWorkGuard?: OpenCodeWorkGuardShape;
 }
 
 /**

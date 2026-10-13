@@ -215,6 +215,24 @@ describe("resolvePathLinkTarget", () => {
       resolvePathLinkTarget("C:/Users/julius/project/src/main.ts:12", "C:\\Users\\julius\\project"),
     ).toBe("C:/Users/julius/project/src/main.ts:12");
   });
+
+  it("resolves a root-relative path against a Windows workspace root", () => {
+    expect(
+      resolvePathLinkTarget("/tabs-icon.png", "C:\\Users\\burak\\MOTHER\\PROJECTS\\TABS-local"),
+    ).toBe("C:\\Users\\burak\\MOTHER\\PROJECTS\\TABS-local\\tabs-icon.png");
+  });
+
+  it("keeps the line suffix when resolving a root-relative path on Windows", () => {
+    expect(
+      resolvePathLinkTarget("/public/tabs-icon.png:12:5", "C:\\Users\\burak\\project"),
+    ).toBe("C:\\Users\\burak\\project\\public\\tabs-icon.png:12:5");
+  });
+
+  it("keeps a POSIX absolute path absolute against a POSIX workspace root", () => {
+    expect(resolvePathLinkTarget("/tabs-icon.png", "/Users/julius/project")).toBe(
+      "/tabs-icon.png",
+    );
+  });
 });
 
 describe("isTerminalLinkActivation", () => {

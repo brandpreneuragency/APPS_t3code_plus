@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 import { ThreadEnvMode } from "./environment.ts";
+import { PromptLibrary } from "./promptLibrary.ts";
 import {
   DEFAULT_TEXT_GENERATION_MODEL,
   DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
@@ -229,6 +230,8 @@ export const ClientSettingsSchema = Schema.Struct({
   providerModelPreferences: Schema.Record(
     ProviderInstanceId,
     Schema.Struct({
+      // Absent in older client settings; readers treat absence as an empty archive.
+      archivedModels: Schema.optionalKey(Schema.Array(Schema.String)),
       hiddenModels: Schema.Array(Schema.String).pipe(
         Schema.withDecodingDefault(Effect.succeed([])),
       ),
@@ -708,6 +711,7 @@ export const BackgroundActivitySettings = Schema.Struct({
 export type BackgroundActivitySettings = typeof BackgroundActivitySettings.Type;
 
 export const ServerSettings = Schema.Struct({
+  promptLibrary: PromptLibrary.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // Legacy token-by-token assistant output. Deliberately a fresh key (was
   // `enableAssistantStreaming`): decoding drops the old key, so everyone,
   // including prior opt-ins, resets to the buffered default.
@@ -976,6 +980,7 @@ const OpenCodeSettingsPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
+  promptLibrary: Schema.optionalKey(PromptLibrary),
   // Server settings
   enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
@@ -1064,6 +1069,7 @@ export const ClientSettingsPatch = Schema.Struct({
     Schema.Record(
       ProviderInstanceId,
       Schema.Struct({
+        archivedModels: Schema.optionalKey(Schema.Array(Schema.String)),
         hiddenModels: Schema.Array(Schema.String).pipe(
           Schema.withDecodingDefault(Effect.succeed([])),
         ),

@@ -39,6 +39,15 @@ const multiSelectQuestion = {
   multiSelect: true,
 } as const;
 
+const taggedCustomQuestion = {
+  id: "deployment",
+  header: "Deployment",
+  question: "Which deployment should be used?",
+  options: [{ label: "Production", description: "Production environment" }],
+  customAnswerOrigin: "tagged",
+  multiSelect: false,
+} as const;
+
 describe("resolvePendingUserInputAnswer", () => {
   it("prefers a custom answer over selected options", () => {
     expect(
@@ -151,6 +160,24 @@ describe("buildPendingUserInputAnswers", () => {
 
   it("returns null when any question is unanswered", () => {
     expect(buildPendingUserInputAnswers([singleSelectQuestion], {})).toBeNull();
+  });
+
+  it("tags custom text even when it equals an option label and preserves ordinary provider answers", () => {
+    expect(
+      buildPendingUserInputAnswers([taggedCustomQuestion], {
+        deployment: { selectedOptionLabels: ["Production"] },
+      }),
+    ).toEqual({ deployment: "Production" });
+    expect(
+      buildPendingUserInputAnswers([taggedCustomQuestion], {
+        deployment: { customAnswer: "Production" },
+      }),
+    ).toEqual({ deployment: { _tag: "custom", value: "Production" } });
+    expect(
+      buildPendingUserInputAnswers([singleSelectQuestion], {
+        scope: { customAnswer: "Orchestration-first" },
+      }),
+    ).toEqual({ scope: "Orchestration-first" });
   });
 });
 

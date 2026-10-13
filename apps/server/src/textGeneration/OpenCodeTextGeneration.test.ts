@@ -23,6 +23,11 @@ const runtimeMock = {
     authHeaders: [] as Array<string | null>,
     closeCalls: [] as string[],
     sessionCreateCalls: 0,
+    protocolV2: false,
+    v2ClientInputs: [] as Array<{ baseUrl: string; serverPassword?: string }>,
+    v2PromptInputs: [] as Array<Record<string, unknown>>,
+    v2ModelInputs: [] as Array<Record<string, unknown>>,
+    v2MessageListInputs: [] as Array<Record<string, unknown>>,
     connectionError: undefined as Error | undefined,
     sessionCreateError: undefined as unknown,
     sessionResult: undefined as { data?: { id: string } } | undefined,
@@ -38,6 +43,11 @@ const runtimeMock = {
     this.state.authHeaders.length = 0;
     this.state.closeCalls.length = 0;
     this.state.sessionCreateCalls = 0;
+    this.state.protocolV2 = false;
+    this.state.v2ClientInputs.length = 0;
+    this.state.v2PromptInputs.length = 0;
+    this.state.v2ModelInputs.length = 0;
+    this.state.v2MessageListInputs.length = 0;
     this.state.connectionError = undefined;
     this.state.sessionCreateError = undefined;
     this.state.sessionResult = undefined;
@@ -69,7 +79,8 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntime.OpenCodeRuntimeShape = {
         ...(effectiveServerPassword !== undefined
           ? { serverPassword: effectiveServerPassword }
           : {}),
-        version: "1.14.19",
+        version: runtimeMock.state.protocolV2 ? "2.0.18" : "1.14.19",
+        ...(runtimeMock.state.protocolV2 ? { protocol: "v2" as const } : {}),
         isRunning: Effect.succeed(true),
         exitCode: Effect.never,
       };
@@ -86,7 +97,8 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntime.OpenCodeRuntimeShape = {
       : Effect.succeed({
           url: serverUrl ?? "http://127.0.0.1:4301",
           ...(serverPassword ? { serverPassword } : {}),
-          version: "1.14.19",
+          version: runtimeMock.state.protocolV2 ? "2.0.18" : "1.14.19",
+          ...(runtimeMock.state.protocolV2 ? { protocol: "v2" as const } : {}),
           exitCode: null,
           external: Boolean(serverUrl),
         }),
@@ -128,6 +140,49 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntime.OpenCodeRuntimeShape = {
         },
       },
     }) as unknown as ReturnType<OpenCodeRuntime.OpenCodeRuntimeShape["createOpenCodeSdkClient"]>,
+  createOpenCodeV2Client: (input) => {
+    runtimeMock.state.v2ClientInputs.push({
+      baseUrl: input.baseUrl,
+      ...(input.serverPassword ? { serverPassword: input.serverPassword } : {}),
+    });
+    return {
+      session: {
+        create: async () => ({ id: "session-v2" }),
+        switchModel: async (value: Record<string, unknown>) => {
+          runtimeMock.state.v2ModelInputs.push(value);
+          return {};
+        },
+        switchAgent: async () => ({}),
+        prompt: async (value: Record<string, unknown>) => {
+          runtimeMock.state.v2PromptInputs.push(value);
+          return {};
+        },
+        wait: async () => ({}),
+      },
+      message: {
+        list: async (input: Record<string, unknown>) => {
+          runtimeMock.state.v2MessageListInputs.push(input);
+          return {
+            data: [
+              {
+                id: "assistant-v2",
+                type: "assistant",
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify({
+                      subject: "V2 text generation",
+                      body: "Uses the V2 session API.",
+                    }),
+                  },
+                ],
+              },
+            ],
+          };
+        },
+      },
+    } as never;
+  },
   loadOpenCodeInventory: () =>
     Effect.fail(
       new OpenCodeRuntime.OpenCodeRuntimeError({
@@ -136,6 +191,7 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntime.OpenCodeRuntimeShape = {
         cause: null,
       }),
     ),
+  loadOpenCodeV2Inventory: () => Effect.die(new Error("V2 inventory not used in this test")),
   loadInventoryFromCli: () =>
     Effect.fail(
       new OpenCodeRuntime.OpenCodeRuntimeError({
@@ -284,6 +340,32 @@ it.layer(OpenCodeTextGenerationTestLayer)("OpenCodeTextGeneration", (it) => {
       }),
     ),
   );
+
+  it.effect("uses the V2 client session lifecycle for utility text generation", () => {
+    runtimeMock.state.protocolV2 = true;
+    return withOpenCodeTextGeneration(LOCAL_AUTH_OPENCODE_SETTINGS, (textGeneration) =>
+      Effect.gen(function* () {
+        const result = yield* textGeneration.generateCommitMessage(DEFAULT_COMMIT_MESSAGE_INPUT);
+
+        expect(result).toEqual({
+          subject: "V2 text generation",
+          body: "Uses the V2 session API.",
+        });
+        expect(runtimeMock.state.v2ClientInputs).toEqual([
+          { baseUrl: "http://127.0.0.1:4301", serverPassword: "secret-password" },
+        ]);
+        expect(runtimeMock.state.v2ModelInputs[0]?.model).toEqual({
+          id: "gpt-5",
+          providerID: "openai",
+        });
+        expect(runtimeMock.state.v2PromptInputs[0]?.text).toContain("feature/opencode-reuse");
+        expect(runtimeMock.state.v2MessageListInputs).toEqual([
+          { sessionID: "session-v2", order: "desc", limit: 1, type: "assistant" },
+        ]);
+        expect(runtimeMock.state.promptUrls).toEqual([]);
+      }),
+    );
+  });
 
   it.effect("uses an environment-only password for a locally spawned server", () =>
     withOpenCodeTextGeneration(

@@ -226,6 +226,102 @@ describe("instance-scoped model selection", () => {
     ]);
   });
 
+  it("removes archived built-in and custom models from the picker", () => {
+    const instanceId = ProviderInstanceId.make("claude_openrouter");
+    const providers = [
+      provider({
+        instanceId,
+        models: ["claude-opus-4-6", "claude-sonnet-4-6"],
+      }),
+    ];
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      providerModelPreferences: {
+        [instanceId]: {
+          hiddenModels: [],
+          archivedModels: ["claude-opus-4-6", "openai/gpt-5.5"],
+          modelOrder: [],
+        },
+      },
+    };
+    const entry = deriveProviderInstanceEntries(providers)[0]!;
+
+    expect(getAppModelOptionsForInstance(settings, entry).map((option) => option.slug)).toEqual([
+      "claude-sonnet-4-6",
+    ]);
+  });
+
+  it("keeps archived models isolated to their provider instance", () => {
+    const firstInstanceId = ProviderInstanceId.make("claudeAgent");
+    const secondInstanceId = ProviderInstanceId.make("claude_openrouter");
+    const providers = [
+      provider({ instanceId: firstInstanceId, models: ["claude-sonnet-4-6"] }),
+      provider({ instanceId: secondInstanceId, models: ["claude-sonnet-4-6"] }),
+    ];
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      providerModelPreferences: {
+        [firstInstanceId]: {
+          hiddenModels: [],
+          archivedModels: ["claude-sonnet-4-6"],
+          modelOrder: [],
+        },
+      },
+    };
+    const entries = deriveProviderInstanceEntries(providers);
+
+    expect(
+      getAppModelOptionsForInstance(settings, entries[0]!).map((option) => option.slug),
+    ).toEqual([]);
+    expect(
+      getAppModelOptionsForInstance(settings, entries[1]!).map((option) => option.slug),
+    ).toEqual(["claude-sonnet-4-6", "openai/gpt-5.5"]);
+  });
+
+  it("shows a restored model again unless it remains hidden", () => {
+    const instanceId = ProviderInstanceId.make("claudeAgent");
+    const providers = [provider({ instanceId, models: ["claude-sonnet-4-6"] })];
+    const entry = deriveProviderInstanceEntries(providers)[0]!;
+    const archived: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      providerModelPreferences: {
+        [instanceId]: {
+          hiddenModels: [],
+          archivedModels: ["claude-sonnet-4-6"],
+          modelOrder: [],
+        },
+      },
+    };
+    const restored: UnifiedSettings = {
+      ...archived,
+      providerModelPreferences: {
+        [instanceId]: { hiddenModels: [], archivedModels: [], modelOrder: [] },
+      },
+    };
+
+    expect(getAppModelOptionsForInstance(archived, entry)).toEqual([]);
+    expect(getAppModelOptionsForInstance(restored, entry).map((option) => option.slug)).toEqual([
+      "claude-sonnet-4-6",
+    ]);
+  });
+
+  it("treats old preferences without archived models as an empty archive", () => {
+    const instanceId = ProviderInstanceId.make("claudeAgent");
+    const providers = [provider({ instanceId, models: ["claude-sonnet-4-6"] })];
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      providerModelPreferences: {
+        [instanceId]: { hiddenModels: [], modelOrder: [] },
+      },
+    };
+
+    expect(
+      getAppModelOptionsForInstance(settings, deriveProviderInstanceEntries(providers)[0]!).map(
+        (option) => option.slug,
+      ),
+    ).toEqual(["claude-sonnet-4-6"]);
+  });
+
   it("applies persisted per-instance model ordering", () => {
     const providers = [
       provider({
@@ -439,6 +535,75 @@ describe("instance-scoped model selection", () => {
         preserveUnavailableSelection: true,
       }),
     ).toBeNull();
+  });
+
+  it("does not add an unavailable OpenCode model when it is archived", () => {
+    const instanceId = ProviderInstanceId.make("opencode");
+    const driver = ProviderDriverKind.make("opencode");
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      providerModelPreferences: {
+        [instanceId]: {
+          hiddenModels: [],
+          archivedModels: ["opencode/kimi-k3"],
+          modelOrder: [],
+        },
+      },
+    };
+    const providers = [provider({ provider: driver, instanceId, models: [] })];
+    const entry = deriveProviderInstanceEntries(providers)[0]!;
+
+    expect(getAppModelOptionsForInstance(settings, entry, "opencode/kimi-k3")).toEqual([]);
+    expect(
+      resolveAppModelSelectionForInstance(instanceId, settings, providers, "opencode/kimi-k3", {
+        preserveUnavailableSelection: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not resolve an archived model when every catalog model is archived", () => {
+    const instanceId = ProviderInstanceId.make("claudeAgent");
+    const providers = [provider({ instanceId, models: ["claude-opus-4-6"] })];
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      providerModelPreferences: {
+        [instanceId]: {
+          hiddenModels: [],
+          archivedModels: ["claude-opus-4-6"],
+          modelOrder: [],
+        },
+      },
+      textGenerationModelSelection: createModelSelection(instanceId, "claude-opus-4-6"),
+    };
+
+    expect(
+      resolveAppModelSelectionForInstance(instanceId, settings, providers, "claude-opus-4-6"),
+    ).toBeNull();
+    expect(resolveAppModelSelectionState(settings, providers)).toEqual(
+      createModelSelection(instanceId, "", []),
+    );
+  });
+
+  it("does not select an archived text-generation default during an empty OpenCode refresh", () => {
+    const instanceId = ProviderInstanceId.make("opencode");
+    const providers = [
+      provider({ provider: ProviderDriverKind.make("opencode"), instanceId, models: [] }),
+    ];
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      providerModelPreferences: {
+        [instanceId]: {
+          archivedModels: ["openai/gpt-5"],
+          hiddenModels: [],
+          modelOrder: [],
+        },
+      },
+      textGenerationModelSelection: createModelSelection(instanceId, "openai/gpt-5"),
+    };
+
+    expect(resolveAppModelSelectionState(settings, providers)).toEqual(
+      createModelSelection(instanceId, "", []),
+    );
   });
 
   it("does not add unavailable options for other providers", () => {

@@ -4,3 +4,6 @@
  * code executes, so this is reliable at module load time.
  */
 export const isElectron = typeof window !== "undefined" && window.desktopBridge !== undefined;
+
+export const sidebarWorkspacesEnabled =
+  isElectron || (import.meta.env.DEV && import.meta.env.VITE_ALPHA_WORKSPACES === "1");

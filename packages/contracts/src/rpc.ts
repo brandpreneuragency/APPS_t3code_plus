@@ -200,6 +200,13 @@ import {
   ModelCatalogueCredentialUpdate,
   ModelCatalogueSummary,
 } from "./modelCatalogue.ts";
+import {
+  OpenCodeAccountActivationInput,
+  OpenCodeAccountActivationResult,
+  OpenCodeAccountError,
+  OpenCodeAccountListInput,
+  OpenCodeAccountState,
+} from "./openCodeAccounts.ts";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
 import {
   SourceControlCloneRepositoryInput,
@@ -302,6 +309,8 @@ export const WS_METHODS = {
   serverGetModelCatalogue: "server.getModelCatalogue",
   serverGetModelCatalogueCredentialStatus: "server.getModelCatalogueCredentialStatus",
   serverSetModelCatalogueCredential: "server.setModelCatalogueCredential",
+  serverListOpenCodeAccounts: "server.listOpenCodeAccounts",
+  serverActivateOpenCodeAccount: "server.activateOpenCodeAccount",
 
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
@@ -491,6 +500,21 @@ export const WsServerSetModelCatalogueCredentialRpc = Rpc.make(
     payload: ModelCatalogueCredentialUpdate,
     success: ModelCatalogueCredentialStatus,
     error: Schema.Union([ModelCatalogueCredentialError, EnvironmentAuthorizationError]),
+  },
+);
+
+export const WsServerListOpenCodeAccountsRpc = Rpc.make(WS_METHODS.serverListOpenCodeAccounts, {
+  payload: OpenCodeAccountListInput,
+  success: OpenCodeAccountState,
+  error: Schema.Union([OpenCodeAccountError, EnvironmentAuthorizationError]),
+});
+
+export const WsServerActivateOpenCodeAccountRpc = Rpc.make(
+  WS_METHODS.serverActivateOpenCodeAccount,
+  {
+    payload: OpenCodeAccountActivationInput,
+    success: OpenCodeAccountActivationResult,
+    error: Schema.Union([OpenCodeAccountError, EnvironmentAuthorizationError]),
   },
 );
 
@@ -1089,6 +1113,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetModelCatalogueRpc,
   WsServerGetModelCatalogueCredentialStatusRpc,
   WsServerSetModelCatalogueCredentialRpc,
+  WsServerListOpenCodeAccountsRpc,
+  WsServerActivateOpenCodeAccountRpc,
   WsServerSignalProcessRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,

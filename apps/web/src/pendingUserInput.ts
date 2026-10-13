@@ -105,15 +105,20 @@ export function togglePendingUserInputOptionSelection(
 export function buildPendingUserInputAnswers(
   questions: ReadonlyArray<UserInputQuestion>,
   draftAnswers: Record<string, PendingUserInputDraftAnswer>,
-): Record<string, string | string[]> | null {
-  const answers: Record<string, string | string[]> = {};
+): Record<string, unknown> | null {
+  const answers: Record<string, unknown> = {};
 
   for (const question of questions) {
-    const answer = resolvePendingUserInputAnswer(question, draftAnswers[question.id]);
+    const draft = draftAnswers[question.id];
+    const answer = resolvePendingUserInputAnswer(question, draft);
     if (!answer) {
       return null;
     }
-    answers[question.id] = answer;
+    const customAnswer = normalizeDraftAnswer(draft?.customAnswer);
+    answers[question.id] =
+      customAnswer && question.customAnswerOrigin === "tagged"
+        ? { _tag: "custom", value: customAnswer }
+        : answer;
   }
 
   return answers;

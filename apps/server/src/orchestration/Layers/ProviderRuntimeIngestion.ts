@@ -825,6 +825,18 @@ export function runtimeEventToActivities(
     }
 
     case "item.completed": {
+      if (event.payload.itemType === "reasoning" && event.payload.detail) {
+        return [{
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "reasoning",
+          summary: event.payload.title ?? "Thinking",
+          payload: { itemType: "reasoning", detail: event.payload.detail },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        }];
+      }
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }

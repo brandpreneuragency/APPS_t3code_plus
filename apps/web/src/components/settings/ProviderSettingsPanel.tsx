@@ -6,6 +6,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
+  AuthAccessWriteScope,
   defaultInstanceIdForDriver,
   type EnvironmentId,
   PROVIDER_DISPLAY_NAMES,
@@ -307,6 +308,7 @@ function SelectedEnvironmentProviderSettings({
         <AccessGatedProviderSettings
           environment={environment}
           operateAccess="granted"
+          canManageOpenCodeAccounts
           deviceTabs={deviceTabs}
         />
       );
@@ -337,6 +339,10 @@ function PrimarySessionGatedProviderSettings({
     <AccessGatedProviderSettings
       environment={environment}
       operateAccess={operateAccess}
+      canManageOpenCodeAccounts={
+        primarySessionState.data?.authenticated === true &&
+        (primarySessionState.data.scopes?.includes(AuthAccessWriteScope) ?? false)
+      }
       deviceTabs={deviceTabs}
     />
   );
@@ -359,6 +365,10 @@ function RemoteSessionGatedProviderSettings({
     <AccessGatedProviderSettings
       environment={environment}
       operateAccess={operateAccess}
+      canManageOpenCodeAccounts={
+        sessionState.data?.authenticated === true &&
+        (sessionState.data.scopes?.includes(AuthAccessWriteScope) ?? false)
+      }
       deviceTabs={deviceTabs}
     />
   );
@@ -367,10 +377,12 @@ function RemoteSessionGatedProviderSettings({
 function AccessGatedProviderSettings({
   environment,
   operateAccess,
+  canManageOpenCodeAccounts,
   deviceTabs,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly operateAccess: ProviderOperateAccess;
+  readonly canManageOpenCodeAccounts: boolean;
   readonly deviceTabs?: ReactNode;
 }) {
   const access = classifyProviderEnvironmentAccess({
@@ -391,6 +403,7 @@ function AccessGatedProviderSettings({
     <EnvironmentProviderSettings
       environmentId={environment.environmentId}
       environmentLabel={environment.label}
+      canManageOpenCodeAccounts={canManageOpenCodeAccounts}
       readOnly={access.kind === "read-only"}
       deviceTabs={deviceTabs}
     />
@@ -400,11 +413,13 @@ function AccessGatedProviderSettings({
 export function EnvironmentProviderSettings({
   environmentId,
   environmentLabel,
+  canManageOpenCodeAccounts = false,
   readOnly = false,
   deviceTabs,
 }: {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
+  readonly canManageOpenCodeAccounts?: boolean;
   readonly deviceTabs?: ReactNode;
   /**
    * Grey out and freeze every write control when this session's credential
@@ -657,20 +672,25 @@ export function EnvironmentProviderSettings({
   const updateProviderModelPreferences = (
     instanceId: ProviderInstanceId,
     next: {
+      readonly archivedModels?: ReadonlyArray<string>;
       readonly hiddenModels: ReadonlyArray<string>;
       readonly modelOrder: ReadonlyArray<string>;
     },
   ) => {
+    const archivedModels = [
+      ...new Set((next.archivedModels ?? []).filter((slug) => slug.trim().length > 0)),
+    ];
     const hiddenModels = [...new Set(next.hiddenModels.filter((slug) => slug.trim().length > 0))];
     const modelOrder = [...new Set(next.modelOrder.filter((slug) => slug.trim().length > 0))];
     const rest = withoutProviderInstanceKey(settings.providerModelPreferences, instanceId);
     updateSettings({
       providerModelPreferences:
-        hiddenModels.length === 0 && modelOrder.length === 0
+        archivedModels.length === 0 && hiddenModels.length === 0 && modelOrder.length === 0
           ? rest
           : {
               ...rest,
               [instanceId]: {
+                archivedModels,
                 hiddenModels,
                 modelOrder,
               },
@@ -750,6 +770,7 @@ export function EnvironmentProviderSettings({
     return (
       <ProviderInstanceCard
         key={row.instanceId}
+        environmentId={environmentId}
         instanceId={row.instanceId}
         instance={row.instance}
         driverOption={driverOption}
@@ -758,6 +779,7 @@ export function EnvironmentProviderSettings({
         selected={mode === "list" && selectedRow?.instanceId === row.instanceId}
         onSelect={mode === "list" ? () => setSelectedInstanceId(row.instanceId) : undefined}
         readOnly={readOnly}
+        canManageOpenCodeAccounts={canManageOpenCodeAccounts}
         onUpdate={(next) => {
           const wasEnabled = resolveProviderInstanceEnabled(row.instance);
           const isDisabling = next.enabled === false && wasEnabled;
@@ -786,9 +808,16 @@ export function EnvironmentProviderSettings({
             />
           ) : null
         }
+        archivedModels={modelPreferences.archivedModels ?? []}
         hiddenModels={modelPreferences.hiddenModels}
         favoriteModels={favoriteModels}
         modelOrder={modelPreferences.modelOrder}
+        onArchivedModelsChange={(archivedModels) =>
+          updateProviderModelPreferences(row.instanceId, {
+            ...modelPreferences,
+            archivedModels,
+          })
+        }
         onHiddenModelsChange={(hiddenModels) =>
           updateProviderModelPreferences(row.instanceId, {
             ...modelPreferences,

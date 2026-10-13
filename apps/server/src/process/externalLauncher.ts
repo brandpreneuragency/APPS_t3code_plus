@@ -318,6 +318,15 @@ const isUsableFileManagerCommand = Effect.fn("externalLauncher.isUsableFileManag
   },
 );
 
+// Windows Explorer lives at a fixed absolute path. A stripped server PATH
+// can hide it from the PATH scan above, which would remove the last
+// remaining editor and make every file link fail. Probe the absolute path
+// as well so "file-manager" survives a minimal environment.
+function windowsExplorerAbsolutePath(env: NodeJS.ProcessEnv): string {
+  const root = env.SYSTEMROOT?.trim() || env.windir?.trim() || String.raw`C:\Windows`;
+  return `${root}\\explorer.exe`;
+}
+
 // The file-manager command a launch can actually run, not just the platform
 // preference. WSL hosts prefer the Windows Explorer bridge, but interop can
 // exist without `explorer.exe` on PATH (appendWindowsPath=false) or without a
@@ -336,6 +345,12 @@ const resolveUsableFileManagerCommand = Effect.fn(
   const command = fileManagerCommandForPlatform(platform, env);
   if (command !== undefined && (yield* isUsableFileManagerCommand(command, env))) {
     return command;
+  }
+  if (platform === "win32") {
+    const fallback = windowsExplorerAbsolutePath(env);
+    if (fallback !== command && (yield* isUsableFileManagerCommand(fallback, env))) {
+      return fallback;
+    }
   }
   if (
     shouldUseWindowsHostFromWsl(platform, env) &&
@@ -555,13 +570,24 @@ const resolveEditorLaunch = Effect.fn("resolveEditorLaunch")(function* (
     return yield* new ExternalLauncherUnsupportedEditorError({ editor: input.editor });
   }
 
+  // The file manager has no position concept: chat and terminal links carry
+  // `path:line:col` targets for real editors, but Explorer/Finder/xdg-open
+  // would receive a nonexistent path — Explorer falls back to Documents and
+  // reveal silently selects nothing. Strip the suffix; errors still report
+  // the original target.
+  const parsedTarget = parseTargetPathAndPosition(input.cwd);
+  const fileManagerTarget =
+    Option.isSome(parsedTarget) && parsedTarget.value.path.length > 0
+      ? parsedTarget.value.path
+      : input.cwd;
+
   const command = yield* resolveUsableFileManagerCommand(platform, env);
   if (command === undefined) {
     return yield* new ExternalLauncherUnsupportedEditorError({ editor: input.editor });
   }
 
   if (input.reveal === true) {
-    return yield* resolveFileManagerRevealLaunch(input.cwd, platform, env, command);
+    return yield* resolveFileManagerRevealLaunch(fileManagerTarget, platform, env, command);
   }
 
   return {
@@ -570,8 +596,8 @@ const resolveEditorLaunch = Effect.fn("resolveEditorLaunch")(function* (
     command,
     args:
       command === "explorer.exe" && env.WSL_DISTRO_NAME !== undefined
-        ? [resolveWslFileManagerPath(input.cwd, env.WSL_DISTRO_NAME)]
-        : [input.cwd],
+        ? [resolveWslFileManagerPath(fileManagerTarget, env.WSL_DISTRO_NAME)]
+        : [fileManagerTarget],
   };
 });
 

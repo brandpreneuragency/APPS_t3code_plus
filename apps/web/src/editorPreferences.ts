@@ -14,6 +14,19 @@ import { useAtomCommand } from "./state/use-atom-command";
 
 const LAST_EDITOR_KEY = "t3code:last-editor";
 
+/**
+ * The file manager is the last resort, not a preference. It is available on
+ * every Windows workspace, so storing it would pin "Open in editor" to
+ * Explorer permanently and a newly installed editor would never be picked up.
+ */
+function pickPreferredEditor(availableEditors: readonly EditorId[]): EditorId | null {
+  const concrete = EDITORS.find(
+    (editor) => editor.id !== "file-manager" && availableEditors.includes(editor.id),
+  );
+  if (concrete) return concrete.id;
+  return EDITORS.find((editor) => availableEditors.includes(editor.id))?.id ?? null;
+}
+
 export class PreferredEditorEnvironmentRequiredError extends Schema.TaggedErrorClass<PreferredEditorEnvironmentRequiredError>()(
   "PreferredEditorEnvironmentRequiredError",
   {
@@ -34,7 +47,7 @@ export class PreferredEditorUnavailableError extends Schema.TaggedErrorClass<Pre
   },
 ) {
   override get message(): string {
-    return `No available editor can open ${this.targetPath} in environment ${this.environmentId}.`;
+    return `T3 found no editor to open ${this.targetPath}. Install an editor command (for example the VS Code 'code' command), then restart T3 Code and try again.`;
   }
 }
 
@@ -42,8 +55,10 @@ export function usePreferredEditor(availableEditors: ReadonlyArray<EditorId>) {
   const [lastEditor, setLastEditor] = useLocalStorage(LAST_EDITOR_KEY, null, EditorId);
 
   const effectiveEditor = useMemo(() => {
-    if (lastEditor && availableEditors.includes(lastEditor)) return lastEditor;
-    return EDITORS.find((editor) => availableEditors.includes(editor.id))?.id ?? null;
+    if (lastEditor && lastEditor !== "file-manager" && availableEditors.includes(lastEditor)) {
+      return lastEditor;
+    }
+    return pickPreferredEditor(availableEditors);
   }, [lastEditor, availableEditors]);
 
   return [effectiveEditor, setLastEditor] as const;
@@ -54,8 +69,8 @@ export function resolveAndPersistPreferredEditor(
 ): EditorId | null {
   const availableEditorIds = new Set(availableEditors);
   const stored = getLocalStorageItem(LAST_EDITOR_KEY, EditorId);
-  if (stored && availableEditorIds.has(stored)) return stored;
-  const editor = EDITORS.find((editor) => availableEditorIds.has(editor.id))?.id ?? null;
+  if (stored && stored !== "file-manager" && availableEditorIds.has(stored)) return stored;
+  const editor = pickPreferredEditor(availableEditors);
   if (editor) setLocalStorageItem(LAST_EDITOR_KEY, editor, EditorId);
   return editor ?? null;
 }

@@ -1,8 +1,11 @@
 import {
+  AuthAccessWriteScope,
+  AuthAdministrativeScopes,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthRelayReadScope,
   AuthRelayWriteScope,
+  AuthStandardClientScopes,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -28,6 +31,17 @@ describe("RPC authorization scopes", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.subscribeBackgroundPolicy)).toBe(
       AuthOrchestrationReadScope,
     );
+  });
+
+  it("limits OpenCode credential activation to administrative access-write clients", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.serverListOpenCodeAccounts)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.serverActivateOpenCodeAccount)).toBe(
+      AuthAccessWriteScope,
+    );
+    expect(AuthStandardClientScopes).not.toContain(AuthAccessWriteScope);
+    expect(AuthAdministrativeScopes).toContain(AuthAccessWriteScope);
   });
 
   it("allows relay status reads without granting relay installation access", () => {

@@ -18,6 +18,30 @@ import {
 } from "./serverSettings.ts";
 
 describe("serverSettings helpers", () => {
+  it("merges independent prompt saves, replaces tags, and removes deleted prompts", () => {
+    const prompt = {
+      title: "Review",
+      text: "Review this change.",
+      favorite: false,
+      order: 0,
+      tags: ["Code", "Work"],
+    };
+    const first = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      promptLibrary: { first: prompt },
+    });
+    const second = applyServerSettingsPatch(first, {
+      promptLibrary: { second: { ...prompt, order: 1 } },
+    });
+    const edited = applyServerSettingsPatch(second, {
+      promptLibrary: { first: { ...prompt, favorite: true, tags: [] } },
+    });
+    expect(edited.promptLibrary.first).toEqual({ ...prompt, favorite: true, tags: [] });
+    expect(edited.promptLibrary.second).toEqual({ ...prompt, order: 1 });
+    const deleted = applyServerSettingsPatch(edited, { promptLibrary: { first: null } });
+    expect(deleted.promptLibrary).toEqual({ second: { ...prompt, order: 1 } });
+    expect(deleted.providers).toEqual(DEFAULT_SERVER_SETTINGS.providers);
+  });
+
   it("normalizes optional persisted strings", () => {
     expect(normalizePersistedServerSettingString(undefined)).toBeUndefined();
     expect(normalizePersistedServerSettingString("   ")).toBeUndefined();

@@ -383,6 +383,7 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
         },
       },
     }) as unknown as ReturnType<OpenCodeRuntimeShape["createOpenCodeSdkClient"]>,
+  createOpenCodeV2Client: () => ({}) as never,
   loadOpenCodeInventory: () =>
     Effect.fail(
       new OpenCodeRuntimeError({
@@ -391,6 +392,7 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
         cause: null,
       }),
     ),
+  loadOpenCodeV2Inventory: () => Effect.die(new Error("V2 inventory not used in this test")),
   loadInventoryFromCli: () =>
     Effect.fail(
       new OpenCodeRuntimeError({
@@ -482,6 +484,24 @@ const questionRequest = (id: string, sessionID: string): QuestionRequest => ({
 });
 
 it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
+  it.effect("rejects an OpenCode V2 resume cursor on the V1 adapter", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      const error = yield* adapter
+        .startSession({
+          provider: ProviderDriverKind.make("opencode"),
+          threadId: asThreadId("thread-opencode-v2-cursor"),
+          runtimeMode: "full-access",
+          resumeCursor: { schemaVersion: 2, sessionId: "ses_v2" },
+        })
+        .pipe(Effect.flip);
+
+      NodeAssert.equal(error._tag, "ProviderAdapterValidationError");
+      NodeAssert.match(error.issue, /OpenCode V2 session cursor/);
+      NodeAssert.equal(runtimeMock.state.sessionCreateUrls.length, 0);
+    }),
+  );
+
   it.effect("reuses a configured OpenCode server URL instead of spawning a local server", () =>
     Effect.gen(function* () {
       const adapter = yield* OpenCodeAdapter;

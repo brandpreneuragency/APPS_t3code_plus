@@ -1030,6 +1030,28 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
+  it("persists provider reasoning separately from assistant messages", async () => {
+    const harness = await createHarness();
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-hermes-reasoning"),
+      provider: ProviderDriverKind.make("hermes"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-reasoning"),
+      itemId: asItemId("thought-1"),
+      payload: { itemType: "reasoning", detail: "Check the existing implementation first.", status: "completed" },
+    });
+    await harness.drain();
+    const thread = (await harness.readModel()).threads.find((entry) => entry.id === "thread-1");
+    expect(thread?.activities).toContainEqual(expect.objectContaining({
+      kind: "reasoning",
+      summary: "Thinking",
+      payload: { itemType: "reasoning", detail: "Check the existing implementation first." },
+    }));
+    expect(thread?.messages).not.toContainEqual(expect.objectContaining({ id: "assistant:thought-1" }));
+  });
+
   it("uses assistant item completion detail when no assistant deltas were streamed", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

@@ -4,6 +4,8 @@ const COMMAND_PALETTE_OPEN_EVENT = "t3code:open-command-palette";
 
 export interface CommandPaletteOpenDetail {
   readonly open?: "add-project" | "new-thread-in";
+  /** Captured attachment/creation workspace. Omitted, undefined, or null keeps Default semantics. */
+  readonly workspaceId?: string | null | undefined;
 }
 
 export function openCommandPalette(detail?: CommandPaletteOpenDetail): void {

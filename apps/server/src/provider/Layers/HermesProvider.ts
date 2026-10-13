@@ -1,6 +1,3 @@
-// @effect-diagnostics nodeBuiltinImport:off
-import * as NodeFS from "node:fs";
-import * as NodePath from "node:path";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import {
   type HermesSettings,
@@ -33,7 +30,8 @@ import {
   enrichProviderSnapshotWithVersionAdvisory,
   type ProviderMaintenanceCapabilities,
 } from "../providerMaintenance.ts";
-import { makeHermesAcpRuntime } from "../acp/HermesAcpSupport.ts";
+import { hermesModelCapabilities, makeHermesAcpRuntime } from "../acp/HermesAcpSupport.ts";
+import { findHermesBinaryOnPath, resolveHermesPythonCandidate } from "../hermesExecutable.ts";
 
 const HERMES_PRESENTATION = {
   displayName: "Hermes",
@@ -281,6 +279,7 @@ export function resolveHermesAuthStatus(input: {
 
 export function buildHermesDiscoveredModelsFromSessionModelState(
   modelState: EffectAcpSchema.SessionModelState | null | undefined,
+  capabilities: ModelCapabilities = EMPTY_CAPABILITIES,
 ): ReadonlyArray<ServerProviderModel> {
   if (!modelState || modelState.availableModels.length === 0) {
     return [];
@@ -301,7 +300,7 @@ export function buildHermesDiscoveredModelsFromSessionModelState(
         ...(subProvider ? { subProvider } : {}),
         isCustom: false,
         ...(slug === currentModelId ? { isDefault: true } : {}),
-        capabilities: EMPTY_CAPABILITIES,
+        capabilities,
       };
     })
     .filter((model): model is ServerProviderModel => model !== undefined);
@@ -311,6 +310,7 @@ interface HermesAcpDiscovery {
   readonly initializeResult: EffectAcpSchema.InitializeResponse | undefined;
   readonly sessionStarted: boolean;
   readonly models: ReadonlyArray<ServerProviderModel>;
+  readonly capabilities: ModelCapabilities;
 }
 
 const discoverHermesViaAcp = (
@@ -339,14 +339,20 @@ const discoverHermesViaAcp = (
         initializeResult: capturedInitialize,
         sessionStarted: false,
         models: [],
+        capabilities: EMPTY_CAPABILITIES,
       } satisfies HermesAcpDiscovery;
     }
+    const capabilities = hermesModelCapabilities(
+      started.success.sessionSetupResult.configOptions ?? [],
+    );
     return {
       initializeResult: started.success.initializeResult,
       sessionStarted: true,
       models: buildHermesDiscoveredModelsFromSessionModelState(
         started.success.sessionSetupResult.models,
+        capabilities,
       ),
+      capabilities,
     } satisfies HermesAcpDiscovery;
   }).pipe(Effect.scoped);
 
@@ -361,69 +367,6 @@ export function parseHermesInventoryPayload(stdout: string): HermesInventoryPayl
   } catch {
     return undefined;
   }
-}
-
-export function findHermesBinaryOnPath(
-  command: string,
-  env: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform,
-): string | undefined {
-  const trimmed = command.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-  if (trimmed.includes("/") || trimmed.includes("\\")) {
-    try {
-      return NodeFS.existsSync(trimmed) ? trimmed : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-  const pathValue = env.PATH ?? env.Path ?? "";
-  const delimiter = platform === "win32" ? ";" : ":";
-  const names = platform === "win32" ? [trimmed, `${trimmed}.exe`, `${trimmed}.cmd`] : [trimmed];
-  for (const dir of pathValue.split(delimiter)) {
-    const base = dir.trim().replace(/^["']|["']$/g, "");
-    if (!base) {
-      continue;
-    }
-    for (const name of names) {
-      const candidate = NodePath.join(base, name);
-      try {
-        if (NodeFS.existsSync(candidate)) {
-          return candidate;
-        }
-      } catch {
-        continue;
-      }
-    }
-  }
-  return undefined;
-}
-
-export function resolveHermesPythonCandidate(
-  hermesPath: string,
-  platform: NodeJS.Platform,
-): string | undefined {
-  let resolved = hermesPath;
-  try {
-    resolved = NodeFS.realpathSync(hermesPath);
-  } catch {
-    resolved = hermesPath;
-  }
-  const dir = NodePath.dirname(resolved);
-  const names = platform === "win32" ? ["python.exe"] : ["python", "python3"];
-  for (const name of names) {
-    const candidate = NodePath.join(dir, name);
-    try {
-      if (NodeFS.existsSync(candidate)) {
-        return candidate;
-      }
-    } catch {
-      continue;
-    }
-  }
-  return undefined;
 }
 
 const discoverHermesInventoryModels = (
@@ -668,15 +611,18 @@ export const checkHermesProviderStatus = Effect.fn("checkHermesProviderStatus")(
     authMethods: readHermesAuthMethods(discovery.initializeResult),
     sessionStarted: discovery.sessionStarted,
   });
-  const discoveredModels = mergeHermesDiscoveredModels(discovery.models, inventoryModels);
+  const discoveredModels = mergeHermesDiscoveredModels(
+    discovery.models,
+    inventoryModels.map((model) => ({ ...model, capabilities: discovery.capabilities })),
+  );
   const models =
     discoveredModels.length > 0
       ? providerModelsFromSettings(
           discoveredModels,
           hermesSettings.customModels,
-          EMPTY_CAPABILITIES,
+          discovery.capabilities,
         )
-      : fallbackModels;
+      : providerModelsFromSettings([], hermesSettings.customModels, discovery.capabilities);
   const discoveryWarning = !discovery.sessionStarted
     ? HERMES_ACP_DISCOVERY_FAILED_MESSAGE
     : discoveredModels.length === 0

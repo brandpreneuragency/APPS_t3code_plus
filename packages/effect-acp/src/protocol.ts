@@ -88,6 +88,7 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
   const outgoing = yield* Queue.unbounded<string | Uint8Array, Cause.Done<void>>();
   const nextRequestId = yield* Ref.make(1);
   const terminationHandled = yield* Ref.make(false);
+  const terminated = yield* Deferred.make<AcpError.AcpError>();
   const extPending = yield* Ref.make(new Map<string, AcpPendingRequest>());
 
   const logProtocol = (event: AcpProtocolLogEvent) => {
@@ -106,6 +107,9 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
   const offerOutgoing = Effect.fn("offerOutgoing")(function* (
     message: RpcMessage.FromClientEncoded | RpcMessage.FromServerEncoded,
   ) {
+    if (yield* Deferred.isDone(terminated)) {
+      return yield* Effect.fail(yield* Deferred.await(terminated));
+    }
     yield* logProtocol({
       direction: "outgoing",
       stage: "decoded",
@@ -210,6 +214,7 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
           if (!error) {
             return;
           }
+          yield* Deferred.succeed(terminated, error);
           yield* failAllExtPending(error);
           yield* emitClientProtocolError(error);
           if (options.onTermination) {
@@ -544,7 +549,10 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
       payload,
       headers: [],
     }).pipe(Effect.tapError(() => removeExtPending(requestId)));
-    return yield* Deferred.await(deferred).pipe(
+    return yield* Effect.raceFirst(
+      Deferred.await(deferred),
+      Deferred.await(terminated).pipe(Effect.flatMap(Effect.fail)),
+    ).pipe(
       Effect.onInterrupt(() => removeExtPending(requestId)),
     );
   });
